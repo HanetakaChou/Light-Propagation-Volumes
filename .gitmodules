@@ -1,0 +1,12 @@
+[submodule "Media"]
+	path = Media
+	url = git@github.com:HanetakaChou/Light-Propagation-Volumes.git
+	branch = Media
+[submodule "thirdparty/LPV"]
+	path = thirdparty/LPV
+	url = git@github.com:HanetakaChou/Light-Propagation-Volumes.git
+	branch = master
+[submodule "thirdparty/DXUT"]
+	path = thirdparty/DXUT
+	url = git@github.com:microsoft/DXUT.git
+	branch = main
