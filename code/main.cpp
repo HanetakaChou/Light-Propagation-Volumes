@@ -12,10 +12,45 @@
 //
 // Please direct any bugs or questions to SDKFeedback@nvidia.com
 
-#pragma warning(disable : 4995)
 #include "Lighting.h"
 #include "grid.h"
-#include "Defines.h"
+#include <codecvt>
+#include "../shaders/Defines.h"
+#include "../dxbc/ScreenQuad_VS_bytecode.inl"
+#include "../dxbc/ScreenQuad_DisplayTextureVS_bytecode.inl"
+#include "../dxbc/ScreenQuad_VS_POS_TEX_bytecode.inl"
+#include "../dxbc/ScreenQuad_DisplayTexturePS2D_bytecode.inl"
+#include "../dxbc/ScreenQuad_DisplayTexturePS2D_floatTextures_bytecode.inl"
+#include "../dxbc/ScreenQuad_ReconstructPosFromDepth_bytecode.inl"
+#include "../dxbc/ScreenQuad_DisplayTexturePS3D_bytecode.inl"
+#include "../dxbc/ScreenQuad_DisplayTexturePS3D_floatTextures_bytecode.inl"
+#include "../dxbc/LPV_Propagate_PropagateLPV_bytecode.inl"
+#include "../dxbc/LPV_Propagate_PropagateLPV_Simple_bytecode.inl"
+#include "../dxbc/LPV_Propagate_PropagateLPV_VS_bytecode.inl"
+#include "../dxbc/LPV_Propagate_PropagateLPV_GS_bytecode.inl"
+#include "../dxbc/LPV_Propagate_PropagateLPV_PS_bytecode.inl"
+#include "../dxbc/LPV_Propagate_PropagateLPV_PS_Simple_bytecode.inl"
+#include "../dxbc/LPV_Accumulate_AccumulateLPV_bytecode.inl"
+#include "../dxbc/LPV_Accumulate4_AccumulateLPV_singleFloats_4_bytecode.inl"
+#include "../dxbc/LPV_Accumulate4_AccumulateLPV_singleFloats_8_bytecode.inl"
+#include "../dxbc/SimpleShading_VS_bytecode.inl"
+#include "../dxbc/SimpleShading_PS_bytecode.inl"
+#include "../dxbc/SimpleShading_PS_separateFloatTextures_bytecode.inl"
+#include "../dxbc/SimpleShading_VS_Simple_bytecode.inl"
+#include "../dxbc/SimpleShading_PS_Simple_bytecode.inl"
+#include "../dxbc/SimpleShading_VS_RSM_bytecode.inl"
+#include "../dxbc/SimpleShading_PS_RSM_bytecode.inl"
+#include "../dxbc/SimpleShading_VS_ShadowMap_bytecode.inl"
+#include "../dxbc/SimpleShading_VS_RSM_DepthPeeling_bytecode.inl"
+#include "../dxbc/SimpleShading_PS_RSM_DepthPeeling_bytecode.inl"
+#include "../dxbc/SimpleShading_VS_VizLPV_bytecode.inl"
+#include "../dxbc/SimpleShading_PS_VizLPV_bytecode.inl"
+#include "../dxbc/LPV_VS_initializeLPV_bytecode.inl"
+#include "../dxbc/LPV_VS_initializeLPV_Bilnear_bytecode.inl"
+#include "../dxbc/LPV_PS_initializeLPV_bytecode.inl"
+#include "../dxbc/LPV_GS_initializeLPV_bytecode.inl"
+#include "../dxbc/LPV_GS_initializeLPV_Bilinear_bytecode.inl"
+#include "../dxbc/LPV_PS_initializeGV_bytecode.inl"
 
 CDXUTDialogResourceManager g_DialogResourceManager; // manager for shared resources of dialogs
 CFirstPersonCamera g_Camera;                        // A first person camera for viewing the scene
@@ -33,9 +68,9 @@ unsigned int g_WindowHeight = 768;
 int g_subsetToRender = -1;
 int g_numHierarchyLevels = 2; // number of levels in the hierarchy
 float g_LPVscale;
-D3DXVECTOR3 g_lightPos;
+DirectX::XMFLOAT3 g_lightPos;
 float g_lightRadius;
-D3DXVECTOR3 g_mUp = D3DXVECTOR3(0.0f, 1.0f, 0.0f);
+DirectX::XMFLOAT3 g_mUp = DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f);
 
 enum PROP_TYPE
 {
@@ -43,10 +78,10 @@ enum PROP_TYPE
     HIERARCHY,
 };
 PROP_TYPE g_propType;
-TCHAR *g_tstr_propType[] =
+WCHAR CONST *g_tstr_propType[] =
     {
-        TEXT("Cascade"),
-        TEXT("Hierarchy"),
+        L"Cascade",
+        L"Hierarchy",
         NULL};
 
 bool g_useRSMCascade;
@@ -57,7 +92,7 @@ int g_LPVLevelToInitialize = HIERARCHICAL_INIT_LEVEL;
 bool bPropTypeChanged = false;
 
 float g_cascadeScale = 1.75f;
-D3DXVECTOR3 g_cascadeTranslate = D3DXVECTOR3(0, 0, 0);
+DirectX::XMFLOAT3 g_cascadeTranslate = DirectX::XMFLOAT3(0, 0, 0);
 bool g_movableLPV;
 
 bool g_depthPeelFromCamera = true;
@@ -65,7 +100,7 @@ bool g_depthPeelFromLight = false;
 int g_numDepthPeelingPasses;
 bool g_useDirectionalLight = true;
 
-D3DXVECTOR3 g_center = D3DXVECTOR3(0.0f, 0.0f, -10.0f);
+DirectX::XMFLOAT3 g_center = DirectX::XMFLOAT3(0.0f, 0.0f, -10.0f);
 bool g_bVisualizeSM;
 bool g_showUI = true;
 bool g_printHelp = false;
@@ -100,22 +135,22 @@ int g_numPropagationStepsLPV;
 bool g_useDiffuseInterreflection;
 float g_directLightStrength;
 Grid *g_grid;
-D3DXVECTOR3 g_objectTranslate = D3DXVECTOR3(0, 0, 0);
+DirectX::XMFLOAT3 g_objectTranslate = DirectX::XMFLOAT3(0, 0, 0);
 bool g_showMovableMesh;
 bool g_useRSMForLight = true;
 bool g_useFinestGrid = true;
 bool g_usePSPropagation = false;
 
-D3DXVECTOR3 g_camViewVector;
-D3DXVECTOR3 g_camTranslate;
+DirectX::XMFLOAT3 g_camViewVector;
+DirectX::XMFLOAT3 g_camTranslate;
 bool g_resetLPVXform = true;
 
-D3DXVECTOR3 g_vecEye;
-D3DXVECTOR3 g_vecAt;
+DirectX::XMFLOAT3 g_vecEye;
+DirectX::XMFLOAT3 g_vecAt;
 
 // variables for animating light
 int g_lightPreset = 0;
-D3DXVECTOR3 g_lightPosDest;
+DirectX::XMFLOAT3 g_lightPosDest;
 bool g_animateLight = false;
 
 enum MOVABLE_MESH_TYPE
@@ -124,10 +159,10 @@ enum MOVABLE_MESH_TYPE
     TYPE_SPHERE = 1,
 };
 MOVABLE_MESH_TYPE movableMeshType = TYPE_SPHERE;
-TCHAR *g_tstr_movableMeshType[] =
+WCHAR CONST *g_tstr_movableMeshType[] =
     {
-        TEXT("Wall"),
-        TEXT("Sphere"),
+        L"Wall",
+        L"Sphere",
         NULL};
 
 // LPVs used in the Hierarchical path
@@ -153,10 +188,10 @@ ID3D11DepthStencilState *g_normalDepthStencilState;
 ID3D11DepthStencilState *depthStencilStateComparisonLess;
 ID3D11DepthStencilState *g_depthStencilStateDisableDepth;
 
-D3DXMATRIX g_pSceneShadowMapProj;
-D3DXMATRIX g_pShadowMapProjMatrixSingle;
+DirectX::XMFLOAT4X4 g_pSceneShadowMapProj;
+DirectX::XMFLOAT4X4 g_pShadowMapProjMatrixSingle;
 #define SM_PROJ_MATS_SIZE 2
-D3DXMATRIX g_pRSMProjMatrices[SM_PROJ_MATS_SIZE];
+DirectX::XMFLOAT4X4 g_pRSMProjMatrices[SM_PROJ_MATS_SIZE];
 
 // viewports
 D3D11_VIEWPORT g_shadowViewport;
@@ -231,16 +266,16 @@ bool g_bilinearInitGVenabled = false;
 bool g_bilinearWasEnabled = false;
 //------------------------------------------------------------
 
-TCHAR *g_tstr_vizOptionLabels[] =
+WCHAR CONST *g_tstr_vizOptionLabels[] =
     {
-        TEXT("Color RSM"),
-        TEXT("Normal RSM"),
-        TEXT("Albedo RSM"),
-        TEXT("Red LPV"),
-        TEXT("Green Accum LPV"),
-        TEXT("Blue Accum LPV"),
-        TEXT("GV"),
-        TEXT("GV Color"),
+        L"Color RSM",
+        L"Normal RSM",
+        L"Albedo RSM",
+        L"Red LPV",
+        L"Green Accum LPV",
+        L"Blue Accum LPV",
+        L"GV",
+        L"GV Color",
         NULL};
 
 enum VIZ_OPTIONS
@@ -264,12 +299,12 @@ enum ADITIONAL_OPTIONS_SELECT
     VIZ_TEXTURES,
 };
 ADITIONAL_OPTIONS_SELECT g_selectedAdditionalOption;
-TCHAR *g_tstr_addOpts[] =
+WCHAR CONST *g_tstr_addOpts[] =
     {
-        TEXT("Simple Light Setup"),
-        TEXT("Advanced Light Setup"),
-        TEXT("Scene Setup"),
-        TEXT("Viz Intermediates"),
+        L"Simple Light Setup",
+        L"Advanced Light Setup",
+        L"Scene Setup",
+        L"Viz Intermediates",
         NULL};
 
 // scene depth
@@ -294,22 +329,22 @@ ID3D11InputLayout *g_pPos3Tex3IL = NULL;
 // for screen quad geometry
 struct SimpleVertex
 {
-    D3DXVECTOR3 Pos;
+    DirectX::XMFLOAT3 Pos;
 };
 
 struct TexPosVertex
 {
-    D3DXVECTOR3 Pos;
-    D3DXVECTOR2 Tex;
-    TexPosVertex(D3DXVECTOR3 p, D3DXVECTOR2 t)
+    DirectX::XMFLOAT3 Pos;
+    DirectX::XMFLOAT2 Tex;
+    TexPosVertex(DirectX::XMFLOAT3 p, DirectX::XMFLOAT2 t)
     {
         Pos = p;
         Tex = t;
     }
     TexPosVertex()
     {
-        Pos = D3DXVECTOR3(0.0f, 0.0f, 0.0f);
-        Tex = D3DXVECTOR2(0.0f, 0.0f);
+        Pos = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+        Tex = DirectX::XMFLOAT2(0.0f, 0.0f);
     }
 };
 
@@ -400,8 +435,8 @@ ID3D11PixelShader *g_pPSVizLPV = NULL;
 CDXUTSDKMesh g_LowResMesh;
 CDXUTSDKMesh g_MeshArrow;
 CDXUTSDKMesh g_MeshBox;
-D3DXVECTOR3 g_BoXExtents;
-D3DXVECTOR3 g_BoxCenter;
+DirectX::XMFLOAT3 g_BoXExtents;
+DirectX::XMFLOAT3 g_BoxCenter;
 
 RenderMesh *g_MainMesh;
 RenderMesh *g_MainMeshSimplified;
@@ -418,7 +453,7 @@ HRESULT LoadMainMeshes(ID3D11Device *pd3dDevice);
 
 void initializeReflectiveShadowMaps(ID3D11Device *pd3dDevice);
 void visualizeMap(RenderTarget *RT, ID3D11DeviceContext *pd3dContext, int numChannels);
-void VisualizeBB(ID3D11DeviceContext *pd3dContext, SimpleRT_RGB *LPV, D3DXMATRIX VPMatrix, D3DXVECTOR4 Color);
+void VisualizeBB(ID3D11DeviceContext *pd3dContext, SimpleRT_RGB *LPV, DirectX::XMFLOAT4X4 VPMatrix, DirectX::XMFLOAT4 Color);
 void updateAdditionalOptions();
 void changeSMTaps(ID3D11DeviceContext *pd3dContext);
 
@@ -429,24 +464,26 @@ void updateLight(float dtime);
 //! Updating constant buffers
 ////////////////////////////////////////////////////////////////////////////////
 
-HRESULT UpdateSceneCB(ID3D11DeviceContext *pd3dContext, D3DXVECTOR3 lightPos, const float lightRadius, float depthBias, bool bUseSM, D3DXMATRIX *WVPMatrix, D3DXMATRIX *WVMatrixIT, D3DXMATRIX *WMatrix, D3DXMATRIX *lightViewProjClip2Tex)
+HRESULT UpdateSceneCB(ID3D11DeviceContext *pd3dContext, DirectX::XMFLOAT3 lightPos, const float lightRadius, float depthBias, bool bUseSM, DirectX::XMFLOAT4X4 *WVPMatrix, DirectX::XMFLOAT4X4 *WVMatrixIT, DirectX::XMFLOAT4X4 *WMatrix, DirectX::XMFLOAT4X4 *lightViewProjClip2Tex)
 {
     HRESULT hr;
     D3D11_MAPPED_SUBRESOURCE MappedResource;
     V(pd3dContext->Map(g_pcbVSPerObject, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource));
     CB_VS_PER_OBJECT *pVSPerObject = (CB_VS_PER_OBJECT *)MappedResource.pData;
-    D3DXMatrixTranspose(&pVSPerObject->m_WorldViewProj, WVPMatrix);
-    D3DXMatrixTranspose(&pVSPerObject->m_WorldViewIT, WVMatrixIT);
-    D3DXMatrixTranspose(&pVSPerObject->m_World, WMatrix);
+    DirectX::XMStoreFloat4x4(&pVSPerObject->m_WorldViewProj, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(WVPMatrix)));
+    DirectX::XMStoreFloat4x4(&pVSPerObject->m_WorldViewIT, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(WVMatrixIT)));
+    DirectX::XMStoreFloat4x4(&pVSPerObject->m_World, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(WMatrix)));
     if (lightViewProjClip2Tex)
-        D3DXMatrixTranspose(&pVSPerObject->m_LightViewProjClip2Tex, lightViewProjClip2Tex);
+    {
+        DirectX::XMStoreFloat4x4(&pVSPerObject->m_LightViewProjClip2Tex, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(lightViewProjClip2Tex)));
+    }
     pd3dContext->Unmap(g_pcbVSPerObject, 0);
     pd3dContext->VSSetConstantBuffers(0, 1, &g_pcbVSPerObject);
 
     V(pd3dContext->Map(g_pcbVSGlobal, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource));
     CB_VS_GLOBAL *pVSGlobal = (CB_VS_GLOBAL *)MappedResource.pData;
 
-    pVSGlobal->g_lightWorldPos = D3DXVECTOR4(lightPos.x, lightPos.y, lightPos.z, 1.f / max(0.000001f, lightRadius * lightRadius));
+    pVSGlobal->g_lightWorldPos = DirectX::XMFLOAT4(lightPos.x, lightPos.y, lightPos.z, 1.f / std::max(0.000001f, lightRadius * lightRadius));
     pVSGlobal->g_depthBiasFromGUI = depthBias;
     pVSGlobal->bUseSM = bUseSM;
     pVSGlobal->g_minCascadeMethod = g_propType == CASCADE ? 1 : 0;
@@ -509,19 +546,19 @@ void setNumIterations()
 
 void setLightAndCamera()
 {
-    g_vecEye = D3DXVECTOR3(9.6254f, -3.69081f, 2.0234f);
-    g_vecAt = D3DXVECTOR3(8.78361f, -3.68715f, 1.48362f);
+    g_vecEye = DirectX::XMFLOAT3(9.6254f, -3.69081f, 2.0234f);
+    g_vecAt = DirectX::XMFLOAT3(8.78361f, -3.68715f, 1.48362f);
 
     g_Camera.SetScalers(0.005f, 3.f);
-    g_lightPos = D3DXVECTOR3(-12.7857f, 22.4795f, 7.65355f);
-    g_center = D3DXVECTOR3(0.0f, 0.0f, 0.0f);
-    g_mUp = D3DXVECTOR3(1.0f, 0.0f, 0.0f);
+    g_lightPos = DirectX::XMFLOAT3(-12.7857f, 22.4795f, 7.65355f);
+    g_center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+    g_mUp = DirectX::XMFLOAT3(1.0f, 0.0f, 0.0f);
 
-    g_LightCamera.SetViewParams(&g_lightPos, &g_center);
+    g_LightCamera.SetViewParams(DirectX::XMLoadFloat3(&g_lightPos), DirectX::XMLoadFloat3(&g_center));
     g_LightCamera.SetScalers(0.001f, 0.2f);
-    g_LightCamera.SetModelCenter(D3DXVECTOR3(0.0f, 0.0f, 0.0f));
+    g_LightCamera.SetModelCenter(DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f));
 
-    g_Camera.SetViewParams(&g_vecEye, &g_vecAt);
+    g_Camera.SetViewParams(DirectX::XMLoadFloat3(&g_vecEye), DirectX::XMLoadFloat3(&g_vecAt));
     g_Camera.SetEnablePositionMovement(true);
 
     g_LightCamera.SetEnablePositionMovement(true);
@@ -571,41 +608,44 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
     float ClearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
     float ClearColor2[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 
-    const D3DXMATRIX *p_mview = g_Camera.GetViewMatrix();
-    D3DXMATRIX *p_cameraViewMatrix = (D3DXMATRIX *)p_mview;
+    DirectX::XMFLOAT4X4 cameraViewMatrix;
+    DirectX::XMStoreFloat4x4(&cameraViewMatrix, g_Camera.GetViewMatrix());
 
-    const D3DXMATRIX *p_cameraProjectionMatrix = g_Camera.GetProjMatrix();
-    D3DXMATRIX VPMatrix = (*p_cameraViewMatrix) * (*p_cameraProjectionMatrix);
+    DirectX::XMFLOAT4X4 cameraProjectionMatrix;
+    DirectX::XMStoreFloat4x4(&cameraProjectionMatrix, g_Camera.GetProjMatrix());
+
+    DirectX::XMFLOAT4X4 VPMatrix;
+    DirectX::XMStoreFloat4x4(&VPMatrix, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&cameraViewMatrix), DirectX::XMLoadFloat4x4(&cameraProjectionMatrix)));
 
     // set up the shadow matrix for the light
-    D3DXMATRIX mShadowMatrix;
-    mShadowMatrix = *(g_LightCamera.GetViewMatrix());
+    DirectX::XMFLOAT4X4 mShadowMatrix;
+    DirectX::XMStoreFloat4x4(&mShadowMatrix, g_LightCamera.GetViewMatrix());
 
     g_MainMovableMesh->setWorldMatrixTranslate(g_objectTranslate.x, g_objectTranslate.y, g_objectTranslate.z);
 
     g_MovableBoxMesh->setWorldMatrixTranslate(g_objectTranslate.x, g_objectTranslate.y, g_objectTranslate.z);
 
     // transforms for the LPV
-    D3DXMATRIX LPVWorldMatrix;
+    DirectX::XMFLOAT4X4 LPVWorldMatrix;
 
     if (g_resetLPVXform)
     {
-        g_camTranslate = D3DXVECTOR3(g_vecEye.x, g_vecEye.y, g_vecEye.z);
-        g_camViewVector = D3DXVECTOR3(1, 0, 0);
+        g_camTranslate = DirectX::XMFLOAT3(g_vecEye.x, g_vecEye.y, g_vecEye.z);
+        g_camViewVector = DirectX::XMFLOAT3(1, 0, 0);
         g_resetLPVXform = false;
     }
     if (g_movableLPV)
     {
-        D3DXMATRIX viewInverse;
-        D3DXMatrixInverse(&viewInverse, NULL, &*p_cameraViewMatrix);
-        g_camViewVector = D3DXVECTOR3(p_cameraViewMatrix->_13, p_cameraViewMatrix->_23, p_cameraViewMatrix->_33);
-        g_camTranslate = D3DXVECTOR3(viewInverse._41, viewInverse._42, viewInverse._43);
+        DirectX::XMFLOAT4X4 viewInverse;
+        DirectX::XMStoreFloat4x4(&viewInverse, DirectX::XMMatrixInverse(NULL, DirectX::XMLoadFloat4x4(&cameraViewMatrix)));
+        g_camViewVector = DirectX::XMFLOAT3(cameraViewMatrix._13, cameraViewMatrix._23, cameraViewMatrix._33);
+        g_camTranslate = DirectX::XMFLOAT3(viewInverse._41, viewInverse._42, viewInverse._43);
     }
 
-    LPV0Propagate->setLPVTransformsRotatedAndOffset(g_LPVscale, g_camTranslate, *p_cameraViewMatrix, g_camViewVector);
-    LPV0Accumulate->setLPVTransformsRotatedAndOffset(g_LPVscale, g_camTranslate, *p_cameraViewMatrix, g_camViewVector);
-    GV0->setLPVTransformsRotatedAndOffset(g_LPVscale, g_camTranslate, *p_cameraViewMatrix, g_camViewVector);
-    GV0Color->setLPVTransformsRotatedAndOffset(g_LPVscale, g_camTranslate, *p_cameraViewMatrix, g_camViewVector);
+    LPV0Propagate->setLPVTransformsRotatedAndOffset(g_LPVscale, g_camTranslate, cameraViewMatrix, g_camViewVector);
+    LPV0Accumulate->setLPVTransformsRotatedAndOffset(g_LPVscale, g_camTranslate, cameraViewMatrix, g_camViewVector);
+    GV0->setLPVTransformsRotatedAndOffset(g_LPVscale, g_camTranslate, cameraViewMatrix, g_camViewVector);
+    GV0Color->setLPVTransformsRotatedAndOffset(g_LPVscale, g_camTranslate, cameraViewMatrix, g_camViewVector);
 
     CB_SIMPLE_OBJECTS *pPSSimple;
 
@@ -630,22 +670,31 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
     pcbRender->directionalDampingAmount = g_directionalDampingAmount;
     if (g_propType == HIERARCHY || g_bUseSingleLPV)
     {
-        D3DXMatrixTranspose(&pcbRender->worldToLPVNormTex, &(LPV0Propagate->m_collection[g_PropLevel]->getWorldToLPVNormTex()));
-        D3DXMatrixTranspose(&pcbRender->worldToLPVNormTexRender, &(LPV0Propagate->m_collection[g_PropLevel]->getWorldToLPVNormTexRender()));
+        DirectX::XMFLOAT4X4 worldToLPVNormTex = LPV0Propagate->m_collection[g_PropLevel]->getWorldToLPVNormTex();
+        DirectX::XMFLOAT4X4 worldToLPVNormTexRender = LPV0Propagate->m_collection[g_PropLevel]->getWorldToLPVNormTexRender();
+        DirectX::XMStoreFloat4x4(&pcbRender->worldToLPVNormTex, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&worldToLPVNormTex)));
+        DirectX::XMStoreFloat4x4(&pcbRender->worldToLPVNormTexRender, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&worldToLPVNormTexRender)));
     }
     else
     {
-        D3DXMatrixTranspose(&pcbRender->worldToLPVNormTex, &(LPV0Propagate->m_collection[0]->getWorldToLPVNormTex()));
-        D3DXMatrixTranspose(&pcbRender->worldToLPVNormTexRender, &(LPV0Propagate->m_collection[0]->getWorldToLPVNormTexRender()));
+        DirectX::XMFLOAT4X4 worldToLPVNormTex = LPV0Propagate->m_collection[0]->getWorldToLPVNormTex();
+        DirectX::XMFLOAT4X4 worldToLPVNormTexRender = LPV0Propagate->m_collection[0]->getWorldToLPVNormTexRender();
+        DirectX::XMStoreFloat4x4(&pcbRender->worldToLPVNormTex, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&worldToLPVNormTex)));
+        DirectX::XMStoreFloat4x4(&pcbRender->worldToLPVNormTexRender, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&worldToLPVNormTexRender)));
+
         if (LPV0Propagate->getNumLevels() > 1)
         {
-            D3DXMatrixTranspose(&pcbRender->worldToLPVNormTex1, &(LPV0Propagate->m_collection[1]->getWorldToLPVNormTex()));
-            D3DXMatrixTranspose(&pcbRender->worldToLPVNormTexRender1, &(LPV0Propagate->m_collection[1]->getWorldToLPVNormTexRender()));
+            DirectX::XMFLOAT4X4 worldToLPVNormTex1 = LPV0Propagate->m_collection[1]->getWorldToLPVNormTex();
+            DirectX::XMFLOAT4X4 worldToLPVNormTexRender1 = LPV0Propagate->m_collection[1]->getWorldToLPVNormTexRender();
+            DirectX::XMStoreFloat4x4(&pcbRender->worldToLPVNormTex1, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&worldToLPVNormTex1)));
+            DirectX::XMStoreFloat4x4(&pcbRender->worldToLPVNormTexRender1, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&worldToLPVNormTexRender1)));
         }
         if (LPV0Propagate->getNumLevels() > 2)
         {
-            D3DXMatrixTranspose(&pcbRender->worldToLPVNormTex2, &(LPV0Propagate->m_collection[2]->getWorldToLPVNormTex()));
-            D3DXMatrixTranspose(&pcbRender->worldToLPVNormTexRender2, &(LPV0Propagate->m_collection[2]->getWorldToLPVNormTexRender()));
+            DirectX::XMFLOAT4X4 worldToLPVNormTex2 = LPV0Propagate->m_collection[2]->getWorldToLPVNormTex();
+            DirectX::XMFLOAT4X4 worldToLPVNormTexRender2 = LPV0Propagate->m_collection[2]->getWorldToLPVNormTexRender();
+            DirectX::XMStoreFloat4x4(&pcbRender->worldToLPVNormTex2, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&worldToLPVNormTex2)));
+            DirectX::XMStoreFloat4x4(&pcbRender->worldToLPVNormTexRender2, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&worldToLPVNormTexRender2)));
         }
     }
 
@@ -716,10 +765,14 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
     if (g_renderMesh)
         meshes[0] = g_MainMesh;
 
-    D3DXVECTOR3 lightPos = *g_LightCamera.GetEyePt();
-    D3DXVECTOR3 lightAt = *g_LightCamera.GetLookAtPt();
-    D3DXVECTOR3 eyePos = *g_Camera.GetEyePt();
-    D3DXVECTOR3 eyeAt = *g_Camera.GetLookAtPt();
+    DirectX::XMFLOAT3 lightPos;
+    DirectX::XMStoreFloat3(&lightPos, g_LightCamera.GetEyePt());
+    DirectX::XMFLOAT3 lightAt;
+    DirectX::XMStoreFloat3(&lightAt, g_LightCamera.GetLookAtPt());
+    DirectX::XMFLOAT3 eyePos;
+    DirectX::XMStoreFloat3(&eyePos, g_Camera.GetEyePt());
+    DirectX::XMFLOAT3 eyeAt;
+    DirectX::XMStoreFloat3(&eyeAt, g_Camera.GetLookAtPt());
 
     // render the shadow map for the scene.
     renderShadowMap(pd3dContext, g_pSceneShadowMap, &g_pSceneShadowMapProj, &mShadowMatrix, numMeshes, meshes,
@@ -740,8 +793,8 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
                 // render a separate RSM for each level
                 for (int i = 0; i < LPV0Accumulate->getNumLevels(); i++)
                 {
-                    D3DXMATRIX *lightViewMatrix = &mShadowMatrix;
-                    D3DXMATRIX *lightProjMatrix = &g_pRSMProjMatrices[min(i, SM_PROJ_MATS_SIZE - 1)];
+                    DirectX::XMFLOAT4X4 *lightViewMatrix = &mShadowMatrix;
+                    DirectX::XMFLOAT4X4 *lightProjMatrix = &g_pRSMProjMatrices[std::min(i, SM_PROJ_MATS_SIZE - 1)];
 
                     // render the main RSM
                     renderRSM(pd3dContext, false, g_pRSMColorRT, g_pRSMAlbedoRT, g_pRSMNormalRT, g_pShadowMapDS, g_pShadowMapDS, lightProjMatrix, lightViewMatrix, numMeshes, meshes, g_shadowViewport, lightPos, g_lightRadius, g_depthBiasFromGUI, g_bUseSM);
@@ -753,8 +806,8 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
             }
             else if (g_propType == CASCADE && !g_bUseSingleLPV)
             {
-                D3DXMATRIX *lightProjMatrix = &g_pRSMProjMatrices[0];
-                D3DXMATRIX *lightViewMatrix = &mShadowMatrix;
+                DirectX::XMFLOAT4X4 *lightProjMatrix = &g_pRSMProjMatrices[0];
+                DirectX::XMFLOAT4X4 *lightViewMatrix = &mShadowMatrix;
 
                 // render the main RSM
                 renderRSM(pd3dContext, false, g_pRSMColorRT, g_pRSMAlbedoRT, g_pRSMNormalRT, g_pShadowMapDS, g_pShadowMapDS, lightProjMatrix, lightViewMatrix, numMeshes, meshes, g_shadowViewport, lightPos, g_lightRadius, g_depthBiasFromGUI, g_bUseSM);
@@ -769,12 +822,12 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
             }
             else
             {
-                D3DXMATRIX *lightViewMatrix = &mShadowMatrix;
-                D3DXMATRIX *lightProjMatrix;
+                DirectX::XMFLOAT4X4 *lightViewMatrix = &mShadowMatrix;
+                DirectX::XMFLOAT4X4 *lightProjMatrix;
                 if (g_propType == HIERARCHY)
                     lightProjMatrix = &g_pShadowMapProjMatrixSingle;
                 else
-                    lightProjMatrix = &g_pRSMProjMatrices[min(g_LPVLevelToInitialize, SM_PROJ_MATS_SIZE - 1)];
+                    lightProjMatrix = &g_pRSMProjMatrices[std::min(g_LPVLevelToInitialize, SM_PROJ_MATS_SIZE - 1)];
 
                 // render the main RSM
                 renderRSM(pd3dContext, false, g_pRSMColorRT, g_pRSMAlbedoRT, g_pRSMNormalRT, g_pShadowMapDS, g_pShadowMapDS, lightProjMatrix, lightViewMatrix, numMeshes, meshes, g_shadowViewport, lightPos, g_lightRadius, g_depthBiasFromGUI, g_bUseSM);
@@ -798,9 +851,9 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
 
             for (int depthPeelingPass = 0; depthPeelingPass < g_numDepthPeelingPasses; depthPeelingPass++)
             {
-                D3DXMATRIX *lightViewMatrix = &mShadowMatrix;
+                DirectX::XMFLOAT4X4 *lightViewMatrix = &mShadowMatrix;
 
-                D3DXMATRIX *lightProjMatrix = &g_pShadowMapProjMatrixSingle;
+                DirectX::XMFLOAT4X4 *lightProjMatrix = &g_pShadowMapProjMatrixSingle;
                 pd3dContext->ClearDepthStencilView(*g_pDepthPeelingDS[depthPeelingPass % 2], D3D11_CLEAR_DEPTH, 1.0, 0);
                 // render the RSMs
                 renderRSM(pd3dContext, depthPeelingPass > 0, g_pRSMColorRT, g_pRSMAlbedoRT, g_pRSMNormalRT, g_pDepthPeelingDS[depthPeelingPass % 2], g_pDepthPeelingDS[(depthPeelingPass + 1) % 2], lightProjMatrix, lightViewMatrix, numMeshes, meshes, g_shadowViewport, lightPos, g_lightRadius, g_depthBiasFromGUI, g_bUseSM);
@@ -816,9 +869,9 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
             {
                 pd3dContext->ClearDepthStencilView(*g_pDepthPeelingDS[depthPeelingPass % 2], D3D11_CLEAR_DEPTH, 1.0, 0);
                 // render the RSMs
-                renderRSM(pd3dContext, depthPeelingPass > 0, g_pRSMColorRT, g_pRSMAlbedoRT, g_pRSMNormalRT, g_pDepthPeelingDS[depthPeelingPass % 2], g_pDepthPeelingDS[(depthPeelingPass + 1) % 2], p_cameraProjectionMatrix, p_cameraViewMatrix, numMeshes, meshes, g_shadowViewport, lightPos, g_lightRadius, g_depthBiasFromGUI, g_bUseSM);
+                renderRSM(pd3dContext, depthPeelingPass > 0, g_pRSMColorRT, g_pRSMAlbedoRT, g_pRSMNormalRT, g_pDepthPeelingDS[depthPeelingPass % 2], g_pDepthPeelingDS[(depthPeelingPass + 1) % 2], &cameraProjectionMatrix, &cameraViewMatrix, numMeshes, meshes, g_shadowViewport, lightPos, g_lightRadius, g_depthBiasFromGUI, g_bUseSM);
                 // use RSMs to initialize GV
-                initializeGV(pd3dContext, GV0->m_collection[g_LPVLevelToInitialize], GV0Color->m_collection[g_LPVLevelToInitialize], g_pRSMAlbedoRT, g_pRSMNormalRT, g_pDepthPeelingDS[depthPeelingPass % 2], g_fCameraFovy, g_WindowWidth / (float)g_WindowHeight, g_cameraNear, g_cameraFar, false, p_cameraProjectionMatrix, *p_cameraViewMatrix);
+                initializeGV(pd3dContext, GV0->m_collection[g_LPVLevelToInitialize], GV0Color->m_collection[g_LPVLevelToInitialize], g_pRSMAlbedoRT, g_pRSMNormalRT, g_pDepthPeelingDS[depthPeelingPass % 2], g_fCameraFovy, g_WindowWidth / (float)g_WindowHeight, g_cameraNear, g_cameraFar, false, &cameraProjectionMatrix, cameraViewMatrix);
             }
         }
     }
@@ -968,12 +1021,14 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
     {
         RenderMesh *mesh = meshes[i];
         // set the matrices
-        D3DXMATRIX ViewProjClip2TexLight, WVPMatrixLight, WVMatrixITLight, WVMatrixLight;
+        DirectX::XMFLOAT4X4 ViewProjClip2TexLight, WVPMatrixLight, WVMatrixITLight, WVMatrixLight;
         mesh->createMatrices(g_pSceneShadowMapProj, mShadowMatrix, &WVMatrixLight, &WVMatrixITLight, &WVPMatrixLight, &ViewProjClip2TexLight);
-        D3DXMATRIX ViewProjClip2TexCamera, WVPMatrixCamera, WVMatrixITCamera, WVMatrixCamera;
-        mesh->createMatrices(*p_cameraProjectionMatrix, *p_cameraViewMatrix, &WVMatrixCamera, &WVMatrixITCamera, &WVPMatrixCamera, &ViewProjClip2TexCamera);
+        DirectX::XMFLOAT4X4 ViewProjClip2TexCamera, WVPMatrixCamera, WVMatrixITCamera, WVMatrixCamera;
+        mesh->createMatrices(cameraProjectionMatrix, cameraViewMatrix, &WVMatrixCamera, &WVMatrixITCamera, &WVPMatrixCamera, &ViewProjClip2TexCamera);
 
-        UpdateSceneCB(pd3dContext, *g_LightCamera.GetEyePt(), g_lightRadius, g_depthBiasFromGUI, g_bUseSM, &(WVPMatrixCamera), &(WVMatrixITCamera), &(mesh->m_WMatrix), &(ViewProjClip2TexLight));
+        DirectX::XMFLOAT3 LightCameraEyePt;
+        DirectX::XMStoreFloat3(&LightCameraEyePt, g_LightCamera.GetEyePt());
+        UpdateSceneCB(pd3dContext, LightCameraEyePt, g_lightRadius, g_depthBiasFromGUI, g_bUseSM, &(WVPMatrixCamera), &(WVMatrixITCamera), &(mesh->m_WMatrix), &(ViewProjClip2TexLight));
 
         // first render the meshes with no alpha
         pd3dContext->OMSetBlendState(g_pNoBlendBS, BlendFactor, 0xffffffff);
@@ -987,9 +1042,9 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
         pd3dContext->Unmap(g_pcbMeshRenderOptions, 0);
         pd3dContext->PSSetConstantBuffers(6, 1, &g_pcbMeshRenderOptions);
         if (g_subsetToRender == -1)
-            mesh->m_Mesh.RenderBounded(pd3dContext, D3DXVECTOR3(0, 0, 0), D3DXVECTOR3(100000, 100000, 100000), 0, 39, -1, 40, Mesh::NO_ALPHA);
+            mesh->m_Mesh.RenderBounded(pd3dContext, DirectX::XMFLOAT3(0, 0, 0), DirectX::XMFLOAT3(100000, 100000, 100000), 0, 39, -1, 40, Mesh::NO_ALPHA);
         else
-            mesh->m_Mesh.RenderSubsetBounded(0, g_subsetToRender, pd3dContext, D3DXVECTOR3(0, 0, 0), D3DXVECTOR3(10000, 10000, 10000), false, 0, 39, -1, 40, Mesh::NO_ALPHA);
+            mesh->m_Mesh.RenderSubsetBounded(0, g_subsetToRender, pd3dContext, DirectX::XMFLOAT3(0, 0, 0), DirectX::XMFLOAT3(10000, 10000, 10000), false, 0, 39, -1, 40, Mesh::NO_ALPHA);
 
         // then render the meshes with alpha
         pd3dContext->OMSetBlendState(g_pAlphaBlendBS, BlendFactor, 0xffffffff);
@@ -1003,9 +1058,9 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
         pd3dContext->Unmap(g_pcbMeshRenderOptions, 0);
         pd3dContext->PSSetConstantBuffers(6, 1, &g_pcbMeshRenderOptions);
         if (g_subsetToRender == -1)
-            mesh->m_Mesh.RenderBounded(pd3dContext, D3DXVECTOR3(0, 0, 0), D3DXVECTOR3(100000, 100000, 100000), 0, 39, -1, 40, Mesh::WITH_ALPHA);
+            mesh->m_Mesh.RenderBounded(pd3dContext, DirectX::XMFLOAT3(0, 0, 0), DirectX::XMFLOAT3(100000, 100000, 100000), 0, 39, -1, 40, Mesh::WITH_ALPHA);
         else
-            mesh->m_Mesh.RenderSubsetBounded(0, g_subsetToRender, pd3dContext, D3DXVECTOR3(0, 0, 0), D3DXVECTOR3(10000, 10000, 10000), false, 0, 39, -1, 40, Mesh::WITH_ALPHA);
+            mesh->m_Mesh.RenderSubsetBounded(0, g_subsetToRender, pd3dContext, DirectX::XMFLOAT3(0, 0, 0), DirectX::XMFLOAT3(10000, 10000, 10000), false, 0, 39, -1, 40, Mesh::WITH_ALPHA);
         pd3dContext->OMSetBlendState(g_pNoBlendBS, BlendFactor, 0xffffffff);
     }
 
@@ -1018,30 +1073,32 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
     // render the box visualizing the LPV
     if (g_bVizLPVBB)
     {
-        D3DXVECTOR4 colors[3];
-        colors[0] = D3DXVECTOR4(1.0f, 0.0f, 0.0f, 1.0f);
-        colors[1] = D3DXVECTOR4(0.0f, 1.0f, 0.0f, 1.0f);
-        colors[2] = D3DXVECTOR4(0.0f, 0.0f, 1.0f, 1.0f);
+        DirectX::XMFLOAT4 colors[3];
+        colors[0] = DirectX::XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f);
+        colors[1] = DirectX::XMFLOAT4(0.0f, 1.0f, 0.0f, 1.0f);
+        colors[2] = DirectX::XMFLOAT4(0.0f, 0.0f, 1.0f, 1.0f);
 
         if (g_propType == HIERARCHY)
             VisualizeBB(pd3dContext, LPV0Propagate->m_collection[0], VPMatrix, colors[0]);
         else
             for (int i = 0; i < LPV0Propagate->getNumLevels(); i++)
-                VisualizeBB(pd3dContext, LPV0Propagate->m_collection[i], VPMatrix, colors[min(2, i)]);
+                VisualizeBB(pd3dContext, LPV0Propagate->m_collection[i], VPMatrix, colors[std::min(2, i)]);
     }
 
     // render the light arrow
     pd3dContext->Map(g_pcbSimple, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
     pPSSimple = (CB_SIMPLE_OBJECTS *)MappedResource.pData;
     // calculate and set the world view projection matrix for transforming the arrow
-    D3DXMATRIX objScale, objXForm;
-    D3DXMatrixScaling(&objScale, 0.06f, 0.06f, 0.06f);
-    D3DXMATRIX mLookAtInv;
-    D3DXMatrixInverse(&mLookAtInv, NULL, &mShadowMatrix);
-    D3DXMATRIX mWorldS = objScale * mLookAtInv;
-    D3DXMatrixMultiply(&objXForm, &mWorldS, &VPMatrix);
-    D3DXMatrixTranspose(&pPSSimple->m_WorldViewProj, &objXForm);
-    pPSSimple->m_color = D3DXVECTOR4(1.0f, 1.0f, 0.0f, 1.0f);
+    DirectX::XMFLOAT4X4 objScale;
+    DirectX::XMStoreFloat4x4(&objScale, DirectX::XMMatrixScaling(0.06f, 0.06f, 0.06f));
+    DirectX::XMFLOAT4X4 mLookAtInv;
+    DirectX::XMStoreFloat4x4(&mLookAtInv, DirectX::XMMatrixInverse(NULL, DirectX::XMLoadFloat4x4(&mShadowMatrix)));
+    DirectX::XMFLOAT4X4 mWorldS;
+    DirectX::XMStoreFloat4x4(&mWorldS, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&objScale), DirectX::XMLoadFloat4x4(&mLookAtInv)));
+    DirectX::XMFLOAT4X4 objXForm;
+    DirectX::XMStoreFloat4x4(&objXForm, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&mWorldS), DirectX::XMLoadFloat4x4(&VPMatrix)));
+    DirectX::XMStoreFloat4x4(&pPSSimple->m_WorldViewProj, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&objXForm)));
+    pPSSimple->m_color = DirectX::XMFLOAT4(1.0f, 1.0f, 0.0f, 1.0f);
     pd3dContext->Unmap(g_pcbSimple, 0);
     pd3dContext->PSSetConstantBuffers(4, 1, &g_pcbSimple);
     pd3dContext->VSSetConstantBuffers(4, 1, &g_pcbSimple);
@@ -1056,11 +1113,12 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
 
         pd3dContext->Map(g_pcbSimple, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
         pPSSimple = (CB_SIMPLE_OBJECTS *)MappedResource.pData;
-        D3DXMATRIX wvp;
-        D3DXMatrixMultiply(&wvp, &(LPV0Propagate->m_collection[0]->getWorldToLPVBB()), &VPMatrix);
-        D3DXMatrixTranspose(&pPSSimple->m_WorldViewProj, &wvp);
-        pPSSimple->m_color = D3DXVECTOR4(1.0f, 0.0f, 0.0f, 1.0f);
-        pPSSimple->m_sphereScale = D3DXVECTOR4(0.002f * g_LPVscale / 23.0f, 0.002f * g_LPVscale / 23.0f, 0.002f * g_LPVscale / 23.0f, 0.002f * g_LPVscale / 23.0f);
+        DirectX::XMFLOAT4X4 w = LPV0Propagate->m_collection[0]->getWorldToLPVBB();
+        DirectX::XMFLOAT4X4 wvp;
+        DirectX::XMStoreFloat4x4(&wvp, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&w), DirectX::XMLoadFloat4x4(&VPMatrix)));
+        DirectX::XMStoreFloat4x4(&pPSSimple->m_WorldViewProj, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&wvp)));
+        pPSSimple->m_color = DirectX::XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f);
+        pPSSimple->m_sphereScale = DirectX::XMFLOAT4(0.002f * g_LPVscale / 23.0f, 0.002f * g_LPVscale / 23.0f, 0.002f * g_LPVscale / 23.0f, 0.002f * g_LPVscale / 23.0f);
         pd3dContext->Unmap(g_pcbSimple, 0);
         pd3dContext->VSSetConstantBuffers(4, 1, &g_pcbSimple);
 
@@ -1097,7 +1155,7 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
 
                     pd3dContext->Map(g_pcbLPVViz, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
                     VIZ_LPV *cbLPVIndex = (VIZ_LPV *)MappedResource.pData;
-                    cbLPVIndex->LPVSpacePos = D3DXVECTOR3((float)x / xLimit, (float)y / yLimit, (float)z / zLimit);
+                    cbLPVIndex->LPVSpacePos = DirectX::XMFLOAT3((float)x / xLimit, (float)y / yLimit, (float)z / zLimit);
                     pd3dContext->Unmap(g_pcbLPVViz, 0);
                     pd3dContext->VSSetConstantBuffers(2, 1, &g_pcbLPVViz);
 
@@ -1331,7 +1389,7 @@ void visualizeMap(RenderTarget *RT, ID3D11DeviceContext *pd3dContext, int numCha
     pd3dContext->PSSetShaderResources(5, 1, ppNullSRV);
 }
 
-void VisualizeBB(ID3D11DeviceContext *pd3dContext, SimpleRT_RGB *LPV, D3DXMATRIX VPMatrix, D3DXVECTOR4 color)
+void VisualizeBB(ID3D11DeviceContext *pd3dContext, SimpleRT_RGB *LPV, DirectX::XMFLOAT4X4 VPMatrix, DirectX::XMFLOAT4 color)
 {
     // translate the box to the center and scale it to be 1.0 in size
     // then transform the box by the transform for the LPV
@@ -1339,13 +1397,13 @@ void VisualizeBB(ID3D11DeviceContext *pd3dContext, SimpleRT_RGB *LPV, D3DXMATRIX
     D3D11_MAPPED_SUBRESOURCE MappedResource;
     pd3dContext->Map(g_pcbSimple, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
     CB_SIMPLE_OBJECTS *pPSSimple = (CB_SIMPLE_OBJECTS *)MappedResource.pData;
-    D3DXMATRIX objScale, objXForm, objTranslate;
-    D3DXMatrixScaling(&objScale, 0.5f / g_BoXExtents.x, 0.5f / g_BoXExtents.y, 0.5f / g_BoXExtents.z);
-    D3DXMatrixTranslation(&objTranslate, g_BoxCenter.x, g_BoxCenter.y, g_BoxCenter.z);
-    D3DXMatrixMultiply(&objXForm, &objTranslate, &objScale);
-    D3DXMatrixMultiply(&objXForm, &objXForm, &(LPV->getWorldToLPVBB()));
-    D3DXMatrixMultiply(&objXForm, &objXForm, &VPMatrix);
-    D3DXMatrixTranspose(&pPSSimple->m_WorldViewProj, &objXForm);
+    DirectX::XMMATRIX objScale = DirectX::XMMatrixScaling(0.5f / g_BoXExtents.x, 0.5f / g_BoXExtents.y, 0.5f / g_BoXExtents.z);
+    DirectX::XMMATRIX objTranslate = DirectX::XMMatrixTranslation(g_BoxCenter.x, g_BoxCenter.y, g_BoxCenter.z);
+    DirectX::XMMATRIX objXForm = DirectX::XMMatrixMultiply(objTranslate, objScale);
+    DirectX::XMFLOAT4X4 w = LPV->getWorldToLPVBB();
+    objXForm = DirectX::XMMatrixMultiply(objXForm, DirectX::XMLoadFloat4x4(&w));
+    objXForm = DirectX::XMMatrixMultiply(objXForm, DirectX::XMLoadFloat4x4(&VPMatrix));
+    DirectX::XMStoreFloat4x4(&pPSSimple->m_WorldViewProj, DirectX::XMMatrixTranspose(objXForm));
     pPSSimple->m_color = color;
     pd3dContext->Unmap(g_pcbSimple, 0);
     pd3dContext->PSSetConstantBuffers(4, 1, &g_pcbSimple);
@@ -1360,7 +1418,7 @@ void RenderText()
 {
     g_pTxtHelper->Begin();
     g_pTxtHelper->SetInsertionPos(2, 0);
-    g_pTxtHelper->SetForegroundColor(D3DXCOLOR(1.0f, 1.0f, 0.0f, 1.0f));
+    g_pTxtHelper->SetForegroundColor(DirectX::XMFLOAT4(1.0f, 1.0f, 0.0f, 1.0f));
     g_pTxtHelper->DrawTextLine(DXUTGetFrameStats(DXUTIsVsyncEnabled()));
     g_pTxtHelper->DrawTextLine(DXUTGetDeviceStats());
 
@@ -1405,7 +1463,7 @@ void CALLBACK OnD3D11FrameRender(ID3D11Device *pd3dDevice, ID3D11DeviceContext *
 void updateProjectionMatrices()
 {
     // setup the camera's projection parameters
-    g_fCameraFovy = 55 * D3DX_PI / 180;
+    g_fCameraFovy = 55 * DirectX::XM_PI / 180;
     float g_fAspectRatio = g_WindowWidth / (float)g_WindowHeight;
     g_cameraNear = 0.01f;
     g_cameraFar = 200.0f;
@@ -1414,7 +1472,7 @@ void updateProjectionMatrices()
 
     // set the light camera's projection parameters
     g_lightNear = 0.01f;
-    g_lightFar = max(100.f, g_lightRadius);
+    g_lightFar = std::max(100.f, g_lightRadius);
 
     {
         if (g_useDirectionalLight)
@@ -1422,11 +1480,11 @@ void updateProjectionMatrices()
 #define RSM_CASCADE_0_SIZE 15.f
 #define RSM_CASCADE_1_SIZE 25.f
 
-            D3DXMatrixOrthoLH(&g_pSceneShadowMapProj, 20, 20, g_lightNear, g_lightFar);        // matrix for the scene shadow map
-            D3DXMatrixOrthoLH(&g_pShadowMapProjMatrixSingle, 20, 20, g_lightNear, g_lightFar); // matrix to use if not using cascaded RSMs
+            DirectX::XMStoreFloat4x4(&g_pSceneShadowMapProj, DirectX::XMMatrixOrthographicLH(20, 20, g_lightNear, g_lightFar));        // matrix for the scene shadow map
+            DirectX::XMStoreFloat4x4(&g_pShadowMapProjMatrixSingle, DirectX::XMMatrixOrthographicLH(20, 20, g_lightNear, g_lightFar)); // matrix to use if not using cascaded RSMs
             // matrices for the cascaded RSM
-            D3DXMatrixOrthoLH(&g_pRSMProjMatrices[0], RSM_CASCADE_0_SIZE, RSM_CASCADE_0_SIZE, g_lightNear, g_lightFar); // first level of the cascade
-            D3DXMatrixOrthoLH(&g_pRSMProjMatrices[1], RSM_CASCADE_1_SIZE, RSM_CASCADE_1_SIZE, g_lightNear, g_lightFar); // second level of the cascade
+            DirectX::XMStoreFloat4x4(&g_pRSMProjMatrices[0], DirectX::XMMatrixOrthographicLH(RSM_CASCADE_0_SIZE, RSM_CASCADE_0_SIZE, g_lightNear, g_lightFar)); // first level of the cascade
+            DirectX::XMStoreFloat4x4(&g_pRSMProjMatrices[1], DirectX::XMMatrixOrthographicLH(RSM_CASCADE_1_SIZE, RSM_CASCADE_1_SIZE, g_lightNear, g_lightFar)); // second level of the cascade
 
             const float fCascadeSize[SM_PROJ_MATS_SIZE] = {RSM_CASCADE_0_SIZE, RSM_CASCADE_1_SIZE};
             const float fCascadeTexelSizeSnapping[SM_PROJ_MATS_SIZE] = {RSM_CASCADE_0_SIZE / RSM_RES * 4.f, RSM_CASCADE_1_SIZE / RSM_RES * 4.f};
@@ -1434,26 +1492,29 @@ void updateProjectionMatrices()
             if (g_movableLPV)
             {
                 // Get light rotation matrix
-                D3DXMATRIXA16 mShadowMatrix;
-                mShadowMatrix = *(g_LightCamera.GetViewMatrix());
+                DirectX::XMFLOAT4X4 mShadowMatrix;
+                DirectX::XMStoreFloat4x4(&mShadowMatrix, g_LightCamera.GetViewMatrix());
                 mShadowMatrix._41 = 0.f;
                 mShadowMatrix._42 = 0.f;
                 mShadowMatrix._43 = 0.f;
 
                 // get camera position and direction
-                const D3DXVECTOR3 vEye = *g_Camera.GetEyePt();
-                D3DXVECTOR3 vDir = (*g_Camera.GetLookAtPt() - *g_Camera.GetEyePt());
-                D3DXVec3Normalize(&vDir, &vDir);
+                DirectX::XMFLOAT3 vEye;
+                DirectX::XMStoreFloat3(&vEye, g_Camera.GetEyePt());
+                DirectX::XMFLOAT3 vDir;
+                DirectX::XMStoreFloat3(&vDir, DirectX::XMVector3Normalize(DirectX::XMVectorSubtract(g_Camera.GetLookAtPt(), g_Camera.GetEyePt())));
 
                 // Move RSM cascades with camera with 4-texel snapping
-                D3DXVECTOR3 vEyeCascade[SM_PROJ_MATS_SIZE];
+                DirectX::XMFLOAT3 vEyeCascade[SM_PROJ_MATS_SIZE];
                 for (int i = 0; i < SM_PROJ_MATS_SIZE; ++i)
                 {
                     // Shift the center of the RSM for 20% towards the view direction
-                    D3DXVECTOR3 vEyeOffsetted = vEye + vDir * fCascadeSize[i] * .2f;
+                    DirectX::XMFLOAT3 vEyeOffsetted;
+                    DirectX::XMStoreFloat3(&vEyeOffsetted, DirectX::XMVectorAdd(DirectX::XMLoadFloat3(&vEye), DirectX::XMVectorScale(DirectX::XMLoadFloat3(&vDir), fCascadeSize[i] * 0.2f)));
+
                     vEyeOffsetted.z = 0;
-                    D3DXVECTOR4 vEye4;
-                    D3DXVec3Transform(&vEye4, &vEyeOffsetted, &mShadowMatrix);
+                    DirectX::XMFLOAT4 vEye4;
+                    DirectX::XMStoreFloat4(&vEye4, DirectX::XMVector3Transform(DirectX::XMLoadFloat3(&vEyeOffsetted), DirectX::XMLoadFloat4x4(&mShadowMatrix)));
 
                     // Perform a 4-texels snapping in order to provide coherent movement-independent rasterization
                     vEyeCascade[i].x = floorf(vEye4.x / fCascadeTexelSizeSnapping[i]) * fCascadeTexelSizeSnapping[i];
@@ -1462,22 +1523,22 @@ void updateProjectionMatrices()
                 }
 
                 // Translate the projection matrix of each RSM cascade
-                D3DXMATRIXA16 mxTrans;
+                DirectX::XMFLOAT4X4 mxTrans;
                 for (int i = 0; i < SM_PROJ_MATS_SIZE; ++i)
                 {
-                    D3DXMatrixTranslation(&mxTrans, -vEyeCascade[i].x, -vEyeCascade[i].y, -vEyeCascade[i].z);
-                    D3DXMatrixMultiply(&g_pRSMProjMatrices[i], &mxTrans, &g_pRSMProjMatrices[i]);
+                    DirectX::XMStoreFloat4x4(&mxTrans, DirectX::XMMatrixTranslation(-vEyeCascade[i].x, -vEyeCascade[i].y, -vEyeCascade[i].z));
+                    DirectX::XMStoreFloat4x4(&g_pRSMProjMatrices[i], DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&mxTrans), DirectX::XMLoadFloat4x4(&g_pRSMProjMatrices[i])));
                 }
             }
         }
         else
         {
-            g_fLightFov = D3DX_PI / 1.4f;
-            D3DXMatrixPerspectiveFovLH(&g_pSceneShadowMapProj, D3DX_PI / 1.4f, 1, g_lightNear, g_lightFar);        // matrix for the scene shadow map
-            D3DXMatrixPerspectiveFovLH(&g_pShadowMapProjMatrixSingle, D3DX_PI / 1.4f, 1, g_lightNear, g_lightFar); // matrix to use if not using cascaded RSMs
+            g_fLightFov = DirectX::XM_PI / 1.4f;
+            DirectX::XMStoreFloat4x4(&g_pSceneShadowMapProj, DirectX::XMMatrixPerspectiveFovLH(DirectX::XM_PI / 1.4f, 1, g_lightNear, g_lightFar));        // matrix for the scene shadow map
+            DirectX::XMStoreFloat4x4(&g_pShadowMapProjMatrixSingle, DirectX::XMMatrixPerspectiveFovLH(DirectX::XM_PI / 1.4f, 1, g_lightNear, g_lightFar)); // matrix to use if not using cascaded RSMs
             // matrices for the cascaded RSM
-            D3DXMatrixPerspectiveFovLH(&g_pRSMProjMatrices[0], D3DX_PI / 1.4f, 1, g_lightNear, g_lightFar); // first level of the cascade
-            D3DXMatrixPerspectiveFovLH(&g_pRSMProjMatrices[1], D3DX_PI / 1.4f, 1, g_lightNear, g_lightFar); // second level of the cascade
+            DirectX::XMStoreFloat4x4(&g_pRSMProjMatrices[0], DirectX::XMMatrixPerspectiveFovLH(DirectX::XM_PI / 1.4f, 1, g_lightNear, g_lightFar)); // first level of the cascade
+            DirectX::XMStoreFloat4x4(&g_pRSMProjMatrices[1], DirectX::XMMatrixPerspectiveFovLH(DirectX::XM_PI / 1.4f, 1, g_lightNear, g_lightFar)); // second level of the cascade
         }
     }
 }
@@ -1527,58 +1588,41 @@ HRESULT CALLBACK OnD3D11ResizedSwapChain(ID3D11Device *pd3dDevice, IDXGISwapChai
     return S_OK;
 }
 
-//--------------------------------------------------------------------------------------
-// Helper function to compile an hlsl shader from file,
-// its binary compiled code is returned
-//--------------------------------------------------------------------------------------
-HRESULT CompileShaderFromFile(WCHAR *szFileName, LPCSTR szEntryPoint, LPCSTR szShaderModel, ID3DBlob **ppBlobOut, ShaderCompileParams &params)
+static void CALLBACK SponzaCreateTextureFromFile11(ID3D11Device *pDev, char *szFileName, ID3D11ShaderResourceView **ppRV, void *)
 {
-    HRESULT hr = S_OK;
+    // Disable ForceSRGB from DXUT
 
-    // find the file
-    WCHAR str[MAX_PATH];
-    hr = DXUTFindDXSDKMediaFileCch(str, MAX_PATH, szFileName);
+    std::string u8FileName;
+    u8FileName += "sponza\\";
+    u8FileName += szFileName;
 
-    if (FAILED(hr))
+    std::wstring u16FileName = std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>, wchar_t>{}.from_bytes(u8FileName);
+
+    WCHAR szFullFileName[MAX_PATH];
+    if (FAILED(DXUTFindDXSDKMediaFileCch(szFullFileName, MAX_PATH, u16FileName.c_str())))
     {
-        WCHAR strFullError[MAX_PATH] = L"The file ";
-        StringCchCat(strFullError, MAX_PATH, szFileName);
-        StringCchCat(strFullError, MAX_PATH, L" was not found in the search path.\nCannot continue - exiting.");
-
-        MessageBoxW(NULL, strFullError, L"Media file not found", MB_OK);
-        exit(0);
+        (*ppRV) = reinterpret_cast<ID3D11ShaderResourceView *>(ERROR_RESOURCE_VALUE);
+        return;
     }
 
-    D3D_SHADER_MACRO *defines = NULL;
-
-    // compile the shader
-    ID3D10Blob *pErrorBlob = NULL;
-    hr = D3DX11CompileFromFile(str, defines, NULL, szEntryPoint, szShaderModel, D3D10_SHADER_ENABLE_STRICTNESS | D3D10_SHADER_IEEE_STRICTNESS, NULL, NULL, ppBlobOut, &pErrorBlob, NULL);
-
-    // output error info
-    if (FAILED(hr))
+    if (FAILED(DXUTGetGlobalResourceCache().CreateTextureFromFile(pDev, DXUTGetD3D11DeviceContext(), szFullFileName, ppRV)))
     {
-        WCHAR strFullError[MAX_PATH] = L"The file ";
-        StringCchCat(strFullError, MAX_PATH, str);
-        StringCchCat(strFullError, MAX_PATH, L" was not found in the search path.\nCannot continue - exiting.");
-        MessageBoxW(NULL, strFullError, L"Media file not found", MB_OK);
-        OutputDebugStringA((char *)pErrorBlob->GetBufferPointer());
-        SAFE_RELEASE(pErrorBlob);
-        return hr;
+        (*ppRV) = reinterpret_cast<ID3D11ShaderResourceView *>(ERROR_RESOURCE_VALUE);
+        return;
     }
-    SAFE_RELEASE(pErrorBlob);
-    delete[] defines;
-
-    return S_OK;
 }
+
+static SDKMESH_CALLBACKS11 g_SponzaLoaderCallbacks = {SponzaCreateTextureFromFile11, NULL, NULL};
 
 HRESULT LoadMainMeshes(ID3D11Device *pd3dDevice)
 {
     HRESULT hr = S_OK;
 
-    V_RETURN(g_MainMesh->m_Mesh.Create(pd3dDevice, L"..\\Media\\sponza\\sponzaNoFlag.sdkmesh", true));
-    V_RETURN(g_MainMeshSimplified->m_Mesh.Create(pd3dDevice, L"..\\Media\\sponza\\SponzaNoFlag.sdkmesh", true)); // can also use SponzaNoFlagSimplified.sdkmesh which is a bit smaller
+    DirectX::XMFLOAT3 meshCenter;
 
+    WCHAR sponzaNoFlagMeshFileName[MAX_PATH];
+    V_RETURN(DXUTFindDXSDKMediaFileCch(sponzaNoFlagMeshFileName, MAX_PATH, L"sponza\\sponzaNoFlag.sdkmesh"));
+    V_RETURN(g_MainMesh->m_Mesh.Create(pd3dDevice, sponzaNoFlagMeshFileName, &g_SponzaLoaderCallbacks));
     g_MainMesh->m_Mesh.LoadNormalmaps(pd3dDevice, std::string("diff.dds"), std::string("ddn.dds"));
     g_MainMesh->m_Mesh.LoadNormalmaps(pd3dDevice, std::string(".dds"), std::string("_ddn.dds"));
     g_MainMesh->m_Mesh.LoadNormalmaps(pd3dDevice, std::string("dif.dds"), std::string("ddn.dds"));
@@ -1586,31 +1630,32 @@ HRESULT LoadMainMeshes(ID3D11Device *pd3dDevice)
     g_MainMesh->m_Mesh.initializeAlphaMaskTextures();
     g_MainMesh->m_Mesh.LoadAlphaMasks(pd3dDevice, std::string(".dds"), std::string("_mask.dds"));
     g_MainMesh->m_Mesh.LoadAlphaMasks(pd3dDevice, std::string("_diff.dds"), std::string("_mask.dds"));
-
     g_MainMesh->m_UseTexture = 1;
-    g_MainMeshSimplified->m_UseTexture = 1;
-
-    D3DXVECTOR3 meshExtents;
-    D3DXVECTOR3 meshCenter;
-
-    meshExtents = g_MainMesh->m_Mesh.GetMeshBBoxExtents(0);
-    meshCenter = g_MainMesh->m_Mesh.GetMeshBBoxCenter(0);
+    DirectX::XMStoreFloat3(&meshCenter, g_MainMesh->m_Mesh.GetMeshBBoxCenter(0));
     g_MainMesh->setWorldMatrix(0.01f, 0.01f, 0.01f, 0, 0, 0, -meshCenter.x, -meshCenter.y, -meshCenter.z);
-    meshExtents = g_MainMeshSimplified->m_Mesh.GetMeshBBoxExtents(0);
-    meshCenter = g_MainMeshSimplified->m_Mesh.GetMeshBBoxCenter(0);
-    g_MainMeshSimplified->setWorldMatrix(0.01f, 0.01f, 0.01f, 0, 0, 0, -meshCenter.x, -meshCenter.y, -meshCenter.z);
-
-    V_RETURN(g_MainMovableMesh->m_Mesh.Create(pd3dDevice, L"..\\Media\\sponza\\flag.sdkmesh", true));
-    meshExtents = g_MainMovableMesh->m_Mesh.GetMeshBBoxExtents(0);
-    meshCenter = g_MainMovableMesh->m_Mesh.GetMeshBBoxCenter(0);
-    g_MainMovableMesh->setWorldMatrix(0.01f, 0.01f, 0.01f, 0, 0, 0, -meshCenter.x, -meshCenter.y, -meshCenter.z);
-    g_MainMovableMesh->m_Mesh.initializeDefaultNormalmaps(pd3dDevice, std::string("defaultNormalTexture.dds"));
-
     g_MainMesh->m_Mesh.ComputeSubmeshBoundingVolumes();
-    g_MainMeshSimplified->m_Mesh.ComputeSubmeshBoundingVolumes();
-    g_MainMovableMesh->m_Mesh.ComputeSubmeshBoundingVolumes();
 
+    WCHAR sponzaNoFlagSimplifiedMeshFileName[MAX_PATH];
+#if 0
+    V_RETURN(DXUTFindDXSDKMediaFileCch(sponzaNoFlagSimplifiedMeshFileName, MAX_PATH, L"sponza\\sponzaNoFlag.sdkmesh"));
+#else
+    // can also use SponzaNoFlagSimplified.sdkmesh which is a bit smaller
+    V_RETURN(DXUTFindDXSDKMediaFileCch(sponzaNoFlagSimplifiedMeshFileName, MAX_PATH, L"sponza\\SponzaNoFlagSimplified.sdkmesh"));
+#endif
+    V_RETURN(g_MainMeshSimplified->m_Mesh.Create(pd3dDevice, sponzaNoFlagSimplifiedMeshFileName, &g_SponzaLoaderCallbacks));
+    g_MainMeshSimplified->m_UseTexture = 1;
+    DirectX::XMStoreFloat3(&meshCenter, g_MainMeshSimplified->m_Mesh.GetMeshBBoxCenter(0));
+    g_MainMeshSimplified->setWorldMatrix(0.01f, 0.01f, 0.01f, 0, 0, 0, -meshCenter.x, -meshCenter.y, -meshCenter.z);
+    g_MainMeshSimplified->m_Mesh.ComputeSubmeshBoundingVolumes();
+
+    WCHAR flagMeshFileName[MAX_PATH];
+    V_RETURN(DXUTFindDXSDKMediaFileCch(flagMeshFileName, MAX_PATH, L"sponza\\flag.sdkmesh"));
+    V_RETURN(g_MainMovableMesh->m_Mesh.Create(pd3dDevice, flagMeshFileName, &g_SponzaLoaderCallbacks));
+    g_MainMovableMesh->m_Mesh.initializeDefaultNormalmaps(pd3dDevice, std::string("defaultNormalTexture.dds"));
     g_MainMovableMesh->m_UseTexture = 0;
+    DirectX::XMStoreFloat3(&meshCenter, g_MainMovableMesh->m_Mesh.GetMeshBBoxCenter(0));
+    g_MainMovableMesh->setWorldMatrix(0.01f, 0.01f, 0.01f, 0, 0, 0, -meshCenter.x, -meshCenter.y, -meshCenter.z);
+    g_MainMovableMesh->m_Mesh.ComputeSubmeshBoundingVolumes();
 
     return hr;
 }
@@ -1719,14 +1764,9 @@ HRESULT CALLBACK OnD3D11CreateDevice(ID3D11Device *pd3dDevice, const DXGI_SURFAC
     //
     // load the screen quad geometry and shaders
     //
-    ID3DBlob *pBlobVS = NULL;
-    ID3DBlob *pBlobGS = NULL;
-    ID3DBlob *pBlobPS = NULL;
-
+    //
     // create shaders
-    V_RETURN(CompileShaderFromFile(L"ScreenQuad.hlsl", "VS", "vs_4_0", &pBlobVS));
-
-    V_RETURN(pd3dDevice->CreateVertexShader(pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(), NULL, &g_pScreenQuadVS));
+    V_RETURN(pd3dDevice->CreateVertexShader(ScreenQuad_VS_bytecode, sizeof(ScreenQuad_VS_bytecode), NULL, &g_pScreenQuadVS));
 
     // create the input layout
     D3D11_INPUT_ELEMENT_DESC layout[] =
@@ -1734,17 +1774,13 @@ HRESULT CALLBACK OnD3D11CreateDevice(ID3D11Device *pd3dDevice, const DXGI_SURFAC
             {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
         };
     UINT numElements = sizeof(layout) / sizeof(layout[0]);
-    V_RETURN(pd3dDevice->CreateInputLayout(layout, numElements, pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(), &g_pScreenQuadIL));
-    SAFE_RELEASE(pBlobVS);
+    V_RETURN(pd3dDevice->CreateInputLayout(layout, numElements, ScreenQuad_VS_bytecode, sizeof(ScreenQuad_VS_bytecode), &g_pScreenQuadIL));
 
     // vertex shader and input layout for screen quad with position and texture
 
-    V_RETURN(CompileShaderFromFile(L"ScreenQuad.hlsl", "DisplayTextureVS", "vs_4_0", &pBlobVS));
-    V_RETURN(pd3dDevice->CreateVertexShader(pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(), NULL, &g_pScreenQuadPosTexVS3D));
-    SAFE_RELEASE(pBlobVS);
+    V_RETURN(pd3dDevice->CreateVertexShader(ScreenQuad_DisplayTextureVS_bytecode, sizeof(ScreenQuad_DisplayTextureVS_bytecode), NULL, &g_pScreenQuadPosTexVS3D));
 
-    V_RETURN(CompileShaderFromFile(L"ScreenQuad.hlsl", "VS_POS_TEX", "vs_4_0", &pBlobVS));
-    V_RETURN(pd3dDevice->CreateVertexShader(pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(), NULL, &g_pScreenQuadPosTexVS2D));
+    V_RETURN(pd3dDevice->CreateVertexShader(ScreenQuad_VS_POS_TEX_bytecode, sizeof(ScreenQuad_VS_POS_TEX_bytecode), NULL, &g_pScreenQuadPosTexVS2D));
 
     D3D11_INPUT_ELEMENT_DESC layout2[] =
         {
@@ -1752,80 +1788,50 @@ HRESULT CALLBACK OnD3D11CreateDevice(ID3D11Device *pd3dDevice, const DXGI_SURFAC
             {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
         };
     numElements = sizeof(layout2) / sizeof(layout2[0]);
-    V_RETURN(pd3dDevice->CreateInputLayout(layout2, numElements, pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(), &g_pScreenQuadPosTexIL));
-    SAFE_RELEASE(pBlobVS);
+    V_RETURN(pd3dDevice->CreateInputLayout(layout2, numElements, ScreenQuad_VS_POS_TEX_bytecode, sizeof(ScreenQuad_VS_POS_TEX_bytecode), &g_pScreenQuadPosTexIL));
 
-    V_RETURN(CompileShaderFromFile(L"ScreenQuad.hlsl", "DisplayTexturePS2D", "ps_4_0", &pBlobPS));
-    V_RETURN(pd3dDevice->CreatePixelShader(pBlobPS->GetBufferPointer(), pBlobPS->GetBufferSize(), NULL, &g_pScreenQuadDisplayPS2D));
-    SAFE_RELEASE(pBlobPS);
+    V_RETURN(pd3dDevice->CreatePixelShader(ScreenQuad_DisplayTexturePS2D_bytecode, sizeof(ScreenQuad_DisplayTexturePS2D_bytecode), NULL, &g_pScreenQuadDisplayPS2D));
 
-    V_RETURN(CompileShaderFromFile(L"ScreenQuad.hlsl", "DisplayTexturePS2D_floatTextures", "ps_4_0", &pBlobPS));
-    V_RETURN(pd3dDevice->CreatePixelShader(pBlobPS->GetBufferPointer(), pBlobPS->GetBufferSize(), NULL, &g_pScreenQuadDisplayPS2D_floatTextures));
-    SAFE_RELEASE(pBlobPS);
+    V_RETURN(pd3dDevice->CreatePixelShader(ScreenQuad_DisplayTexturePS2D_floatTextures_bytecode, sizeof(ScreenQuad_DisplayTexturePS2D_floatTextures_bytecode), NULL, &g_pScreenQuadDisplayPS2D_floatTextures));
 
-    V_RETURN(CompileShaderFromFile(L"ScreenQuad.hlsl", "ReconstructPosFromDepth", "ps_4_0", &pBlobPS));
-    V_RETURN(pd3dDevice->CreatePixelShader(pBlobPS->GetBufferPointer(), pBlobPS->GetBufferSize(), NULL, &g_pScreenQuadReconstructPosFromDepth));
-    SAFE_RELEASE(pBlobPS);
+    V_RETURN(pd3dDevice->CreatePixelShader(ScreenQuad_ReconstructPosFromDepth_bytecode, sizeof(ScreenQuad_ReconstructPosFromDepth_bytecode), NULL, &g_pScreenQuadReconstructPosFromDepth));
 
-    V_RETURN(CompileShaderFromFile(L"ScreenQuad.hlsl", "DisplayTexturePS3D", "ps_4_0", &pBlobPS));
-    V_RETURN(pd3dDevice->CreatePixelShader(pBlobPS->GetBufferPointer(), pBlobPS->GetBufferSize(), NULL, &g_pScreenQuadDisplayPS3D));
-    SAFE_RELEASE(pBlobPS);
+    V_RETURN(pd3dDevice->CreatePixelShader(ScreenQuad_DisplayTexturePS3D_bytecode, sizeof(ScreenQuad_DisplayTexturePS3D_bytecode), NULL, &g_pScreenQuadDisplayPS3D));
 
-    V_RETURN(CompileShaderFromFile(L"ScreenQuad.hlsl", "DisplayTexturePS3D_floatTextures", "ps_4_0", &pBlobPS));
-    V_RETURN(pd3dDevice->CreatePixelShader(pBlobPS->GetBufferPointer(), pBlobPS->GetBufferSize(), NULL, &g_pScreenQuadDisplayPS3D_floatTextures));
-    SAFE_RELEASE(pBlobPS);
+    V_RETURN(pd3dDevice->CreatePixelShader(ScreenQuad_DisplayTexturePS3D_floatTextures_bytecode, sizeof(ScreenQuad_DisplayTexturePS3D_floatTextures_bytecode), NULL, &g_pScreenQuadDisplayPS3D_floatTextures));
 
-    ID3DBlob *pBlob = NULL;
-    V_RETURN(CompileShaderFromFile(L"LPV_Propagate.hlsl", "PropagateLPV", "cs_5_0", &pBlob));
-    V_RETURN(pd3dDevice->CreateComputeShader(pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pCSPropagateLPV));
-    SAFE_RELEASE(pBlob);
+    V_RETURN(pd3dDevice->CreateComputeShader(LPV_Propagate_PropagateLPV_bytecode, sizeof(LPV_Propagate_PropagateLPV_bytecode), NULL, &g_pCSPropagateLPV));
 
-    V_RETURN(CompileShaderFromFile(L"LPV_Propagate.hlsl", "PropagateLPV_Simple", "cs_5_0", &pBlob));
-    V_RETURN(pd3dDevice->CreateComputeShader(pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pCSPropagateLPVSimple));
-    SAFE_RELEASE(pBlob);
+    V_RETURN(pd3dDevice->CreateComputeShader(LPV_Propagate_PropagateLPV_Simple_bytecode, sizeof(LPV_Propagate_PropagateLPV_Simple_bytecode), NULL, &g_pCSPropagateLPVSimple));
 
-    V_RETURN(CompileShaderFromFile(L"LPV_Propagate.hlsl", "PropagateLPV_VS", "vs_4_0", &pBlob));
-    V_RETURN(pd3dDevice->CreateVertexShader(pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pVSPropagateLPV));
+    V_RETURN(pd3dDevice->CreateVertexShader(LPV_Propagate_PropagateLPV_VS_bytecode, sizeof(LPV_Propagate_PropagateLPV_VS_bytecode), NULL, &g_pVSPropagateLPV));
     D3D11_INPUT_ELEMENT_DESC layout3[] =
         {
             {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
             {"TEXCOORD", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
         };
     numElements = sizeof(layout3) / sizeof(layout3[0]);
-    V_RETURN(pd3dDevice->CreateInputLayout(layout3, numElements, pBlob->GetBufferPointer(), pBlob->GetBufferSize(), &g_pPos3Tex3IL));
-    SAFE_RELEASE(pBlob);
+    V_RETURN(pd3dDevice->CreateInputLayout(layout3, numElements, LPV_Propagate_PropagateLPV_VS_bytecode, sizeof(LPV_Propagate_PropagateLPV_VS_bytecode), &g_pPos3Tex3IL));
 
-    V_RETURN(CompileShaderFromFile(L"LPV_Propagate.hlsl", "PropagateLPV_GS", "gs_4_0", &pBlob));
-    V_RETURN(pd3dDevice->CreateGeometryShader(pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pGSPropagateLPV));
-    SAFE_RELEASE(pBlob);
+    V_RETURN(pd3dDevice->CreateGeometryShader(LPV_Propagate_PropagateLPV_GS_bytecode, sizeof(LPV_Propagate_PropagateLPV_GS_bytecode), NULL, &g_pGSPropagateLPV));
 
-    V_RETURN(CompileShaderFromFile(L"LPV_Propagate.hlsl", "PropagateLPV_PS", "ps_4_0", &pBlob));
-    V_RETURN(pd3dDevice->CreatePixelShader(pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pPSPropagateLPV));
-    SAFE_RELEASE(pBlob);
+    V_RETURN(pd3dDevice->CreatePixelShader(LPV_Propagate_PropagateLPV_PS_bytecode, sizeof(LPV_Propagate_PropagateLPV_PS_bytecode), NULL, &g_pPSPropagateLPV));
 
-    V_RETURN(CompileShaderFromFile(L"LPV_Propagate.hlsl", "PropagateLPV_PS_Simple", "ps_4_0", &pBlob));
-    V_RETURN(pd3dDevice->CreatePixelShader(pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pPSPropagateLPVSimple));
-    SAFE_RELEASE(pBlob);
+    V_RETURN(pd3dDevice->CreatePixelShader(LPV_Propagate_PropagateLPV_PS_Simple_bytecode, sizeof(LPV_Propagate_PropagateLPV_PS_Simple_bytecode), NULL, &g_pPSPropagateLPVSimple));
 
-    V_RETURN(CompileShaderFromFile(L"LPV_Accumulate.hlsl", "AccumulateLPV", "cs_5_0", &pBlob));
-    V_RETURN(pd3dDevice->CreateComputeShader(pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pCSAccumulateLPV));
-    SAFE_RELEASE(pBlob);
+    V_RETURN(pd3dDevice->CreateComputeShader(LPV_Accumulate_AccumulateLPV_bytecode, sizeof(LPV_Accumulate_AccumulateLPV_bytecode), NULL, &g_pCSAccumulateLPV));
 
-    V_RETURN(CompileShaderFromFile(L"LPV_Accumulate4.hlsl", "AccumulateLPV_singleFloats_8", "cs_5_0", &pBlob));
-    V_RETURN(pd3dDevice->CreateComputeShader(pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pCSAccumulateLPV_singleFloats_8));
-    SAFE_RELEASE(pBlob);
+    V_RETURN(pd3dDevice->CreateComputeShader(LPV_Accumulate4_AccumulateLPV_singleFloats_8_bytecode, sizeof(LPV_Accumulate4_AccumulateLPV_singleFloats_8_bytecode), NULL, &g_pCSAccumulateLPV_singleFloats_8));
 
-    V_RETURN(CompileShaderFromFile(L"LPV_Accumulate4.hlsl", "AccumulateLPV_singleFloats_4", "cs_5_0", &pBlob));
-    V_RETURN(pd3dDevice->CreateComputeShader(pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pCSAccumulateLPV_singleFloats_4));
-    SAFE_RELEASE(pBlob);
+    V_RETURN(pd3dDevice->CreateComputeShader(LPV_Accumulate4_AccumulateLPV_singleFloats_4_bytecode, sizeof(LPV_Accumulate4_AccumulateLPV_singleFloats_4_bytecode), NULL, &g_pCSAccumulateLPV_singleFloats_4));
 
     // create the vertex buffer for the screen quad
     SimpleVertex vertices[] =
         {
-            D3DXVECTOR3(-1.0f, -1.0f, 0.0f),
-            D3DXVECTOR3(-1.0f, 1.0f, 0.0f),
-            D3DXVECTOR3(1.0f, -1.0f, 0.0f),
-            D3DXVECTOR3(1.0f, 1.0f, 0.0f),
+            DirectX::XMFLOAT3(-1.0f, -1.0f, 0.0f),
+            DirectX::XMFLOAT3(-1.0f, 1.0f, 0.0f),
+            DirectX::XMFLOAT3(1.0f, -1.0f, 0.0f),
+            DirectX::XMFLOAT3(1.0f, 1.0f, 0.0f),
         };
     D3D11_BUFFER_DESC bd;
     bd.Usage = D3D11_USAGE_DEFAULT;
@@ -1840,10 +1846,10 @@ HRESULT CALLBACK OnD3D11CreateDevice(ID3D11Device *pd3dDevice, const DXGI_SURFAC
     // create the vertex buffer for a small visualization
     TexPosVertex verticesViz[] =
         {
-            TexPosVertex(D3DXVECTOR3(-1.0f, -1.0f, 0.0f), D3DXVECTOR2(0.0f, 1.0f)),
-            TexPosVertex(D3DXVECTOR3(-1.0f, -0.25f, 0.0f), D3DXVECTOR2(0.0f, 0.0f)),
-            TexPosVertex(D3DXVECTOR3(-0.25f, -1.0f, 0.0f), D3DXVECTOR2(1.0f, 1.0f)),
-            TexPosVertex(D3DXVECTOR3(-0.25f, -0.25f, 0.0f), D3DXVECTOR2(1.0f, 0.0f)),
+            TexPosVertex(DirectX::XMFLOAT3(-1.0f, -1.0f, 0.0f), DirectX::XMFLOAT2(0.0f, 1.0f)),
+            TexPosVertex(DirectX::XMFLOAT3(-1.0f, -0.25f, 0.0f), DirectX::XMFLOAT2(0.0f, 0.0f)),
+            TexPosVertex(DirectX::XMFLOAT3(-0.25f, -1.0f, 0.0f), DirectX::XMFLOAT2(1.0f, 1.0f)),
+            TexPosVertex(DirectX::XMFLOAT3(-0.25f, -0.25f, 0.0f), DirectX::XMFLOAT2(1.0f, 0.0f)),
         };
     bd.Usage = D3D11_USAGE_DEFAULT;
     bd.ByteWidth = sizeof(TexPosVertex) * 4;
@@ -1856,10 +1862,8 @@ HRESULT CALLBACK OnD3D11CreateDevice(ID3D11Device *pd3dDevice, const DXGI_SURFAC
     //
     // load mesh and shading effects
     //
-    V_RETURN(CompileShaderFromFile(L"SimpleShading.hlsl", "VS", "vs_4_0", &pBlobVS));
-    V_RETURN(CompileShaderFromFile(L"SimpleShading.hlsl", "PS", "ps_4_0", &pBlobPS));
-    V_RETURN(pd3dDevice->CreateVertexShader(pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(), NULL, &g_pVS));
-    V_RETURN(pd3dDevice->CreatePixelShader(pBlobPS->GetBufferPointer(), pBlobPS->GetBufferSize(), NULL, &g_pPS));
+    V_RETURN(pd3dDevice->CreateVertexShader(SimpleShading_VS_bytecode, sizeof(SimpleShading_VS_bytecode), NULL, &g_pVS));
+    V_RETURN(pd3dDevice->CreatePixelShader(SimpleShading_PS_bytecode, sizeof(SimpleShading_PS_bytecode), NULL, &g_pPS));
 
     // create the vertex input layout
     const D3D11_INPUT_ELEMENT_DESC meshLayout[] =
@@ -1870,45 +1874,23 @@ HRESULT CALLBACK OnD3D11CreateDevice(ID3D11Device *pd3dDevice, const DXGI_SURFAC
             {"TANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 32, D3D11_INPUT_PER_VERTEX_DATA, 0},
         };
 
-    V_RETURN(pd3dDevice->CreateInputLayout(meshLayout, ARRAYSIZE(meshLayout), pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(), &g_pMeshLayout));
+    V_RETURN(pd3dDevice->CreateInputLayout(meshLayout, ARRAYSIZE(meshLayout), SimpleShading_VS_bytecode, sizeof(SimpleShading_VS_bytecode), &g_pMeshLayout));
 
-    SAFE_RELEASE(pBlobVS);
-    SAFE_RELEASE(pBlobPS);
+    V_RETURN(pd3dDevice->CreatePixelShader(SimpleShading_PS_separateFloatTextures_bytecode, sizeof(SimpleShading_PS_separateFloatTextures_bytecode), NULL, &g_pPS_separateFloatTextures));
 
-    V_RETURN(CompileShaderFromFile(L"SimpleShading.hlsl", "PS_separateFloatTextures", "ps_4_0", &pBlobPS));
-    V_RETURN(pd3dDevice->CreatePixelShader(pBlobPS->GetBufferPointer(), pBlobPS->GetBufferSize(), NULL, &g_pPS_separateFloatTextures));
+    V_RETURN(pd3dDevice->CreateVertexShader(SimpleShading_VS_Simple_bytecode, sizeof(SimpleShading_VS_Simple_bytecode), NULL, &g_pSimpleVS));
+    V_RETURN(pd3dDevice->CreatePixelShader(SimpleShading_PS_Simple_bytecode, sizeof(SimpleShading_PS_Simple_bytecode), NULL, &g_pSimplePS));
 
-    V_RETURN(CompileShaderFromFile(L"SimpleShading.hlsl", "VS_Simple", "vs_4_0", &pBlobVS));
-    V_RETURN(CompileShaderFromFile(L"SimpleShading.hlsl", "PS_Simple", "ps_4_0", &pBlobPS));
-    V_RETURN(pd3dDevice->CreateVertexShader(pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(), NULL, &g_pSimpleVS));
-    V_RETURN(pd3dDevice->CreatePixelShader(pBlobPS->GetBufferPointer(), pBlobPS->GetBufferSize(), NULL, &g_pSimplePS));
-    SAFE_RELEASE(pBlobVS);
-    SAFE_RELEASE(pBlobPS);
+    V_RETURN(pd3dDevice->CreateVertexShader(SimpleShading_VS_RSM_bytecode, sizeof(SimpleShading_VS_RSM_bytecode), NULL, &g_pVSRSM));
+    V_RETURN(pd3dDevice->CreatePixelShader(SimpleShading_PS_RSM_bytecode, sizeof(SimpleShading_PS_RSM_bytecode), NULL, &g_pPSRSM));
 
-    V_RETURN(CompileShaderFromFile(L"SimpleShading.hlsl", "VS_RSM", "vs_4_0", &pBlobVS));
-    V_RETURN(CompileShaderFromFile(L"SimpleShading.hlsl", "PS_RSM", "ps_4_0", &pBlobPS));
-    V_RETURN(pd3dDevice->CreateVertexShader(pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(), NULL, &g_pVSRSM));
-    V_RETURN(pd3dDevice->CreatePixelShader(pBlobPS->GetBufferPointer(), pBlobPS->GetBufferSize(), NULL, &g_pPSRSM));
-    SAFE_RELEASE(pBlobVS);
-    SAFE_RELEASE(pBlobPS);
+    V_RETURN(pd3dDevice->CreateVertexShader(SimpleShading_VS_ShadowMap_bytecode, sizeof(SimpleShading_VS_ShadowMap_bytecode), NULL, &g_pVSSM));
 
-    V_RETURN(CompileShaderFromFile(L"SimpleShading.hlsl", "VS_ShadowMap", "vs_4_0", &pBlobVS));
-    V_RETURN(pd3dDevice->CreateVertexShader(pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(), NULL, &g_pVSSM));
-    SAFE_RELEASE(pBlobVS);
+    V_RETURN(pd3dDevice->CreateVertexShader(SimpleShading_VS_RSM_DepthPeeling_bytecode, sizeof(SimpleShading_VS_RSM_DepthPeeling_bytecode), NULL, &g_pVSRSMDepthPeeling));
+    V_RETURN(pd3dDevice->CreatePixelShader(SimpleShading_PS_RSM_DepthPeeling_bytecode, sizeof(SimpleShading_PS_RSM_DepthPeeling_bytecode), NULL, &g_pPSRSMDepthPeel));
 
-    V_RETURN(CompileShaderFromFile(L"SimpleShading.hlsl", "VS_RSM_DepthPeeling", "vs_4_0", &pBlobVS));
-    V_RETURN(CompileShaderFromFile(L"SimpleShading.hlsl", "PS_RSM_DepthPeeling", "ps_4_0", &pBlobPS));
-    V_RETURN(pd3dDevice->CreateVertexShader(pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(), NULL, &g_pVSRSMDepthPeeling));
-    V_RETURN(pd3dDevice->CreatePixelShader(pBlobPS->GetBufferPointer(), pBlobPS->GetBufferSize(), NULL, &g_pPSRSMDepthPeel));
-    SAFE_RELEASE(pBlobVS);
-    SAFE_RELEASE(pBlobPS);
-
-    V_RETURN(CompileShaderFromFile(L"SimpleShading.hlsl", "VS_VizLPV", "vs_4_0", &pBlobVS));
-    V_RETURN(CompileShaderFromFile(L"SimpleShading.hlsl", "PS_VizLPV", "ps_4_0", &pBlobPS));
-    V_RETURN(pd3dDevice->CreateVertexShader(pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(), NULL, &g_pVSVizLPV));
-    V_RETURN(pd3dDevice->CreatePixelShader(pBlobPS->GetBufferPointer(), pBlobPS->GetBufferSize(), NULL, &g_pPSVizLPV));
-    SAFE_RELEASE(pBlobVS);
-    SAFE_RELEASE(pBlobPS);
+    V_RETURN(pd3dDevice->CreateVertexShader(SimpleShading_VS_VizLPV_bytecode, sizeof(SimpleShading_VS_VizLPV_bytecode), NULL, &g_pVSVizLPV));
+    V_RETURN(pd3dDevice->CreatePixelShader(SimpleShading_PS_VizLPV_bytecode, sizeof(SimpleShading_PS_VizLPV_bytecode), NULL, &g_pPSVizLPV));
 
     g_MainMesh = new RenderMesh();
     g_MainMeshSimplified = new RenderMesh();
@@ -1917,14 +1899,21 @@ HRESULT CALLBACK OnD3D11CreateDevice(ID3D11Device *pd3dDevice, const DXGI_SURFAC
 
     V_RETURN(LoadMainMeshes(pd3dDevice));
 
-    V_RETURN(g_MovableBoxMesh->m_Mesh.Create(pd3dDevice, L"..\\Media\\box.sdkmesh", true));
+    WCHAR boxMeshFileName[MAX_PATH];
+    V_RETURN(DXUTFindDXSDKMediaFileCch(boxMeshFileName, MAX_PATH, L"box.sdkmesh"));
+    V_RETURN(g_MovableBoxMesh->m_Mesh.Create(pd3dDevice, boxMeshFileName));
+    V_RETURN(g_MeshBox.Create(pd3dDevice, boxMeshFileName));
 
-    V_RETURN(g_LowResMesh.Create(pd3dDevice, L"..\\Media\\unitSphere.sdkmesh", true));
-    V_RETURN(g_MeshArrow.Create(pd3dDevice, L"..\\Media\\arrow.sdkmesh", true));
-    V_RETURN(g_MeshBox.Create(pd3dDevice, L"..\\Media\\box.sdkmesh", true));
+    WCHAR unitSphereMeshFileName[MAX_PATH];
+    V_RETURN(DXUTFindDXSDKMediaFileCch(unitSphereMeshFileName, MAX_PATH, L"unitSphere.sdkmesh"));
+    V_RETURN(g_LowResMesh.Create(pd3dDevice, unitSphereMeshFileName));
 
-    g_BoXExtents = g_MeshBox.GetMeshBBoxExtents(0);
-    g_BoxCenter = g_MeshBox.GetMeshBBoxCenter(0);
+    WCHAR arrowMeshFileName[MAX_PATH];
+    V_RETURN(DXUTFindDXSDKMediaFileCch(arrowMeshFileName, MAX_PATH, L"arrow.sdkmesh"));
+    V_RETURN(g_MeshArrow.Create(pd3dDevice, arrowMeshFileName));
+
+    DirectX::XMStoreFloat3(&g_BoXExtents, g_MeshBox.GetMeshBBoxExtents(0));
+    DirectX::XMStoreFloat3(&g_BoxCenter, g_MeshBox.GetMeshBBoxCenter(0));
 
     g_MovableBoxMesh->setWorldMatrix(1.0f / g_BoXExtents.x, 16.0f / g_BoXExtents.y, 16.0f / g_BoXExtents.z, 0, 0, 0, 0, 0, 0);
     g_MovableBoxMesh->m_UseTexture = 0;
@@ -2036,11 +2025,9 @@ HRESULT CALLBACK OnD3D11CreateDevice(ID3D11Device *pd3dDevice, const DXGI_SURFAC
     // create the grid used to render to our flat 3D textures (splatted into large 2D textures)
 
     ID3D11VertexShader *pLPV_init_VS = NULL;
-    V_RETURN(CompileShaderFromFile(L"ScreenQuad.hlsl", "DisplayTextureVS", "vs_4_0", &pBlobVS));
-    V_RETURN(pd3dDevice->CreateVertexShader(pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(), NULL, &pLPV_init_VS));
+    V_RETURN(pd3dDevice->CreateVertexShader(ScreenQuad_DisplayTextureVS_bytecode, sizeof(ScreenQuad_DisplayTextureVS_bytecode), NULL, &pLPV_init_VS));
     g_grid = new Grid(pd3dDevice, pd3dImmediateContext);
-    g_grid->Initialize(g_LPVWIDTH, g_LPVHEIGHT, g_LPVDEPTH, pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize());
-    SAFE_RELEASE(pBlobVS);
+    g_grid->Initialize(g_LPVWIDTH, g_LPVHEIGHT, g_LPVDEPTH, static_cast<void const *>(ScreenQuad_DisplayTextureVS_bytecode), sizeof(ScreenQuad_DisplayTextureVS_bytecode));
     SAFE_RELEASE(pLPV_init_VS);
 
     createPropagationAndGeometryVolumes(pd3dDevice);
@@ -2058,29 +2045,17 @@ HRESULT CALLBACK OnD3D11CreateDevice(ID3D11Device *pd3dDevice, const DXGI_SURFAC
     g_LPVViewport3D.TopLeftY = 0;
 
     // load the shaders and create the layout for the LPV initialization
-    V_RETURN(CompileShaderFromFile(L"LPV.hlsl", "VS_initializeLPV", "vs_4_0", &pBlobVS));
-    V_RETURN(pd3dDevice->CreateVertexShader(pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(), NULL, &g_pVSInitializeLPV));
-    SAFE_RELEASE(pBlobVS);
+    V_RETURN(pd3dDevice->CreateVertexShader(LPV_VS_initializeLPV_bytecode, sizeof(LPV_VS_initializeLPV_bytecode), NULL, &g_pVSInitializeLPV));
 
-    V_RETURN(CompileShaderFromFile(L"LPV.hlsl", "VS_initializeLPV_Bilnear", "vs_4_0", &pBlobVS));
-    V_RETURN(pd3dDevice->CreateVertexShader(pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(), NULL, &g_pVSInitializeLPV_Bilinear));
-    SAFE_RELEASE(pBlobVS);
+    V_RETURN(pd3dDevice->CreateVertexShader(LPV_VS_initializeLPV_Bilnear_bytecode, sizeof(LPV_VS_initializeLPV_Bilnear_bytecode), NULL, &g_pVSInitializeLPV_Bilinear));
 
-    V_RETURN(CompileShaderFromFile(L"LPV.hlsl", "PS_initializeLPV", "ps_4_0", &pBlobPS));
-    V_RETURN(pd3dDevice->CreatePixelShader(pBlobPS->GetBufferPointer(), pBlobPS->GetBufferSize(), NULL, &g_pPSInitializeLPV));
-    SAFE_RELEASE(pBlobPS);
+    V_RETURN(pd3dDevice->CreatePixelShader(LPV_PS_initializeLPV_bytecode, sizeof(LPV_PS_initializeLPV_bytecode), NULL, &g_pPSInitializeLPV));
 
-    V_RETURN(CompileShaderFromFile(L"LPV.hlsl", "GS_initializeLPV", "gs_4_0", &pBlobGS));
-    V_RETURN(pd3dDevice->CreateGeometryShader(pBlobGS->GetBufferPointer(), pBlobGS->GetBufferSize(), NULL, &g_pGSInitializeLPV));
-    SAFE_RELEASE(pBlobGS);
-    V_RETURN(CompileShaderFromFile(L"LPV.hlsl", "GS_initializeLPV_Bilinear", "gs_4_0", &pBlobGS));
-    V_RETURN(pd3dDevice->CreateGeometryShader(pBlobGS->GetBufferPointer(), pBlobGS->GetBufferSize(), NULL, &g_pGSInitializeLPV_Bilinear));
-    SAFE_RELEASE(pBlobGS);
+    V_RETURN(pd3dDevice->CreateGeometryShader(LPV_GS_initializeLPV_bytecode, sizeof(LPV_GS_initializeLPV_bytecode), NULL, &g_pGSInitializeLPV));
+    V_RETURN(pd3dDevice->CreateGeometryShader(LPV_GS_initializeLPV_Bilinear_bytecode, sizeof(LPV_GS_initializeLPV_Bilinear_bytecode), NULL, &g_pGSInitializeLPV_Bilinear));
 
     // load the shaders and create the layout for the GV initialization
-    V_RETURN(CompileShaderFromFile(L"LPV.hlsl", "PS_initializeGV", "ps_4_0", &pBlobPS));
-    V_RETURN(pd3dDevice->CreatePixelShader(pBlobPS->GetBufferPointer(), pBlobPS->GetBufferSize(), NULL, &g_pPSInitializeGV));
-    SAFE_RELEASE(pBlobPS);
+    V_RETURN(pd3dDevice->CreatePixelShader(LPV_PS_initializeGV_bytecode, sizeof(LPV_PS_initializeGV_bytecode), NULL, &g_pPSInitializeGV));
 
     // initialize the precomputed values of g_LPVPropagateGather
     D3D11_MAPPED_SUBRESOURCE MappedResource;
@@ -2091,46 +2066,46 @@ HRESULT CALLBACK OnD3D11CreateDevice(ID3D11Device *pd3dDevice, const DXGI_SURFAC
     pd3dImmediateContext->Map(g_pcbLPVpropagateGather2, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource2);
     g_LPVPropagateGather2 = (CB_LPV_PROPAGATE_GATHER2 *)MappedResource2.pData;
 
-    D3DXVECTOR3 offsets[6];
+    DirectX::XMFLOAT3 offsets[6];
     // offsets to the six neighbors of a cell at 0,0,0
-    offsets[0] = D3DXVECTOR3(0, 0, 1);
-    offsets[1] = D3DXVECTOR3(1, 0, 0);
-    offsets[2] = D3DXVECTOR3(0, 0, -1);
-    offsets[3] = D3DXVECTOR3(-1, 0, 0);
-    offsets[4] = D3DXVECTOR3(0, 1, 0);
-    offsets[5] = D3DXVECTOR3(0, -1, 0);
+    offsets[0] = DirectX::XMFLOAT3(0, 0, 1);
+    offsets[1] = DirectX::XMFLOAT3(1, 0, 0);
+    offsets[2] = DirectX::XMFLOAT3(0, 0, -1);
+    offsets[3] = DirectX::XMFLOAT3(-1, 0, 0);
+    offsets[4] = DirectX::XMFLOAT3(0, 1, 0);
+    offsets[5] = DirectX::XMFLOAT3(0, -1, 0);
 
     for (int neighbor = 0; neighbor < 6; neighbor++)
     {
-        D3DXVECTOR3 neighborCellCenter = offsets[neighbor];
+        DirectX::XMFLOAT3 neighborCellCenter = offsets[neighbor];
 
-        D3DXVECTOR4 occlusionOffsets = D3DXVECTOR4(0, 0, 0, 0);
+        DirectX::XMFLOAT4 occlusionOffsets = DirectX::XMFLOAT4(0, 0, 0, 0);
         if (neighborCellCenter.x > 0)
-            occlusionOffsets = D3DXVECTOR4(6, 1, 2, 0);
+            occlusionOffsets = DirectX::XMFLOAT4(6, 1, 2, 0);
         else if (neighborCellCenter.x < 0)
-            occlusionOffsets = D3DXVECTOR4(7, 5, 4, 3);
+            occlusionOffsets = DirectX::XMFLOAT4(7, 5, 4, 3);
         else if (neighborCellCenter.y > 0)
-            occlusionOffsets = D3DXVECTOR4(0, 3, 1, 5);
+            occlusionOffsets = DirectX::XMFLOAT4(0, 3, 1, 5);
         else if (neighborCellCenter.y < 0)
-            occlusionOffsets = D3DXVECTOR4(2, 4, 6, 7);
+            occlusionOffsets = DirectX::XMFLOAT4(2, 4, 6, 7);
         else if (neighborCellCenter.z > 0)
-            occlusionOffsets = D3DXVECTOR4(0, 3, 2, 4);
+            occlusionOffsets = DirectX::XMFLOAT4(0, 3, 2, 4);
         else if (neighborCellCenter.z < 0)
-            occlusionOffsets = D3DXVECTOR4(1, 5, 6, 7);
+            occlusionOffsets = DirectX::XMFLOAT4(1, 5, 6, 7);
 
-        D3DXVECTOR4 multiBounceOffsets = D3DXVECTOR4(0, 0, 0, 0);
+        DirectX::XMFLOAT4 multiBounceOffsets = DirectX::XMFLOAT4(0, 0, 0, 0);
         if (neighborCellCenter.x > 0)
-            multiBounceOffsets = D3DXVECTOR4(7, 5, 4, 3);
+            multiBounceOffsets = DirectX::XMFLOAT4(7, 5, 4, 3);
         else if (neighborCellCenter.x < 0)
-            multiBounceOffsets = D3DXVECTOR4(6, 1, 2, 0);
+            multiBounceOffsets = DirectX::XMFLOAT4(6, 1, 2, 0);
         else if (neighborCellCenter.y > 0)
-            multiBounceOffsets = D3DXVECTOR4(2, 4, 6, 7);
+            multiBounceOffsets = DirectX::XMFLOAT4(2, 4, 6, 7);
         else if (neighborCellCenter.y < 0)
-            multiBounceOffsets = D3DXVECTOR4(0, 3, 1, 5);
+            multiBounceOffsets = DirectX::XMFLOAT4(0, 3, 1, 5);
         else if (neighborCellCenter.z > 0)
-            multiBounceOffsets = D3DXVECTOR4(1, 5, 6, 7);
+            multiBounceOffsets = DirectX::XMFLOAT4(1, 5, 6, 7);
         else if (neighborCellCenter.z < 0)
-            multiBounceOffsets = D3DXVECTOR4(0, 3, 2, 4);
+            multiBounceOffsets = DirectX::XMFLOAT4(0, 3, 2, 4);
 
         g_LPVPropagateGather2->propConsts2[neighbor].multiBounceOffsetX = (int)multiBounceOffsets.x;
         g_LPVPropagateGather2->propConsts2[neighbor].multiBounceOffsetY = (int)multiBounceOffsets.y;
@@ -2144,13 +2119,14 @@ HRESULT CALLBACK OnD3D11CreateDevice(ID3D11Device *pd3dDevice, const DXGI_SURFAC
         // for each of the six faces of a cell
         for (int face = 0; face < 6; face++)
         {
-            D3DXVECTOR3 facePosition = offsets[face] * 0.5f;
+            DirectX::XMVECTOR facePosition = DirectX::XMVectorScale(DirectX::XMLoadFloat3(&offsets[face]), 0.5f);
             // the vector from the neighbor's cell center
-            D3DXVECTOR3 vecFromNCC = D3DXVECTOR3(facePosition - neighborCellCenter);
-            float length = D3DXVec3Length(&vecFromNCC);
-            vecFromNCC /= length;
+            DirectX::XMFLOAT3 vecFromNCC;
+            DirectX::XMStoreFloat3(&vecFromNCC, DirectX::XMVectorSubtract(facePosition, DirectX::XMLoadFloat3(&neighborCellCenter)));
+            float length = DirectX::XMVectorGetX(DirectX::XMVector3Length(DirectX::XMLoadFloat3(&vecFromNCC)));
+            DirectX::XMStoreFloat3(&vecFromNCC, DirectX::XMVectorScale(DirectX::XMLoadFloat3(&vecFromNCC), 1.0f / length));
 
-            g_LPVPropagateGather->propConsts[neighbor * 6 + face].neighborOffset = D3DXVECTOR4(neighborCellCenter, 1.0f);
+            g_LPVPropagateGather->propConsts[neighbor * 6 + face].neighborOffset = DirectX::XMFLOAT4(neighborCellCenter.x, neighborCellCenter.y, neighborCellCenter.z, 1.0f);
             g_LPVPropagateGather->propConsts[neighbor * 6 + face].x = vecFromNCC.x;
             g_LPVPropagateGather->propConsts[neighbor * 6 + face].y = vecFromNCC.y;
             g_LPVPropagateGather->propConsts[neighbor * 6 + face].z = vecFromNCC.z;
@@ -2374,8 +2350,6 @@ LRESULT CALLBACK MsgProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, boo
 //--------------------------------------------------------------------------------------
 bool CALLBACK ModifyDeviceSettings(DXUTDeviceSettings *pDeviceSettings, void *pUserContext)
 {
-    assert(pDeviceSettings->ver == DXUT_D3D11_DEVICE);
-
     // Add UAC flag to back buffer Texture2D resource, so we can create an UAV on the back buffer of the swap chain,
     // then it can be bound as the output resource of the CS
     //    pDeviceSettings->d3d11.sd.BufferUsage |= DXGI_USAGE_UNORDERED_ACCESS;
@@ -2385,19 +2359,25 @@ bool CALLBACK ModifyDeviceSettings(DXUTDeviceSettings *pDeviceSettings, void *pU
     if (s_bFirstTime)
     {
         s_bFirstTime = false;
-        if ((DXUT_D3D9_DEVICE == pDeviceSettings->ver && pDeviceSettings->d3d9.DeviceType == D3DDEVTYPE_REF) ||
-            (DXUT_D3D11_DEVICE == pDeviceSettings->ver &&
-             pDeviceSettings->d3d11.DriverType == D3D_DRIVER_TYPE_REFERENCE))
+        if (pDeviceSettings->d3d11.DriverType == D3D_DRIVER_TYPE_REFERENCE)
         {
-            DXUTDisplaySwitchingToREFWarning(pDeviceSettings->ver);
+            DXUTDisplaySwitchingToREFWarning();
         }
-
-        // Disable vsync
-        pDeviceSettings->d3d11.SyncInterval = 0;
-        // enable multisampling
-        pDeviceSettings->d3d11.sd.SampleDesc.Count = D3DMULTISAMPLE_2_SAMPLES;
-        pDeviceSettings->d3d11.sd.SampleDesc.Quality = 0;
     }
+
+#ifndef NDEBUG
+    pDeviceSettings->d3d11.CreateFlags = D3D11_CREATE_DEVICE_SINGLETHREADED | D3D11_CREATE_DEVICE_DEBUG;
+#else
+    pDeviceSettings->d3d11.CreateFlags = D3D11_CREATE_DEVICE_SINGLETHREADED;
+#endif
+
+    // Disable vsync
+    pDeviceSettings->d3d11.SyncInterval = 0;
+    // disable SRGB
+    pDeviceSettings->d3d11.sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    // enable multisampling
+    pDeviceSettings->d3d11.sd.SampleDesc.Count = 2;
+    pDeviceSettings->d3d11.sd.SampleDesc.Quality = 0;
 
     return true;
 }
@@ -2870,7 +2850,7 @@ void InitApp()
 
     StringCchPrintf(sz, 100, L"LPV iterations: %d", g_numPropagationStepsLPV);
     g_HUD.AddStatic(IDC_PROPAGATEITERATIONS_STATIC, sz, -32, iY += 24, 125, 22);
-    g_HUD.AddSlider(IDC_PROPAGATEITERATIONS_SCALE, 50, iY += 20, 100, 22, 0, max(g_LPVWIDTH, max(g_LPVHEIGHT, g_LPVDEPTH)), g_numPropagationStepsLPV);
+    g_HUD.AddSlider(IDC_PROPAGATEITERATIONS_SCALE, 50, iY += 20, 100, 22, 0, std::max(g_LPVWIDTH, std::max(g_LPVHEIGHT, g_LPVDEPTH)), g_numPropagationStepsLPV);
 
     /*
         StringCchPrintf( sz, 100, L"LPV scale: %d", (int)g_LPVscale );
@@ -2983,15 +2963,8 @@ void initializeReflectiveShadowMaps(ID3D11Device *pd3dDevice)
 // Entry point to the program. Initializes everything and goes into a message processing
 // loop. Idle time is used to render the scene.
 //--------------------------------------------------------------------------------------
-int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nCmdShow)
+int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
 {
-    HRESULT hr;
-    V_RETURN(DXUTSetMediaSearchPath(L"..\\Source\\DiffuseGlobalIllumination"));
-    // Enable run-time memory check for debug builds.
-#if defined(DEBUG) | defined(_DEBUG)
-    _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
-#endif
-
     // Disable gamma correction on this sample
     DXUTSetIsInGammaCorrectMode(false);
 
@@ -3013,8 +2986,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     DXUTInit(true, true, 0); // Parse the command line, show msgboxes on error, no extra command line params
 
     DXUTSetCursorSettings(true, true); // Show the cursor and clip it when in full screen
-    DXUTCreateWindow(L"DirectX 11 Lighting Sample");
-    DXUTCreateDevice(D3D_FEATURE_LEVEL_10_0, true, g_WindowWidth, g_WindowHeight);
+    DXUTCreateWindow(L"LPV (Light Propagation Volumes)");
+    DXUTCreateDevice(D3D_FEATURE_LEVEL_11_0, true, g_WindowWidth, g_WindowHeight);
     DXUTMainLoop(); // Enter into the DXUT render loop
 
     return DXUTGetExitCode();
@@ -3147,8 +3120,8 @@ void CALLBACK OnD3D11ReleasingSwapChain(void *pUserContext)
     g_DialogResourceManager.OnD3D11ReleasingSwapChain();
 }
 
-void renderShadowMap(ID3D11DeviceContext *pd3dContext, DepthRT *pShadowMapDS, const D3DXMATRIX *projectionMatrix, const D3DXMATRIX *viewMatrix,
-                     int numMeshes, RenderMesh **meshes, D3D11_VIEWPORT shadowViewport, D3DXVECTOR3 lightPos, const float lightRadius, float depthBiasFromGUI)
+void renderShadowMap(ID3D11DeviceContext *pd3dContext, DepthRT *pShadowMapDS, const DirectX::XMFLOAT4X4 *projectionMatrix, const DirectX::XMFLOAT4X4 *viewMatrix,
+                     int numMeshes, RenderMesh **meshes, D3D11_VIEWPORT shadowViewport, DirectX::XMFLOAT3 lightPos, const float lightRadius, float depthBiasFromGUI)
 {
     ID3D11RenderTargetView *pRTVNULL[1] = {NULL};
     pd3dContext->ClearDepthStencilView(*pShadowMapDS, D3D11_CLEAR_DEPTH, 1.0, 0);
@@ -3163,15 +3136,15 @@ void renderShadowMap(ID3D11DeviceContext *pd3dContext, DepthRT *pShadowMapDS, co
     for (int i = 0; i < numMeshes; i++)
     {
         RenderMesh *mesh = meshes[i];
-        D3DXMATRIX ViewProjClip2TexLight, WVPMatrixLight, WVMatrixITLight, WVMatrix;
+        DirectX::XMFLOAT4X4 ViewProjClip2TexLight, WVPMatrixLight, WVMatrixITLight, WVMatrix;
         mesh->createMatrices(g_pSceneShadowMapProj, *viewMatrix, &WVMatrix, &WVMatrixITLight, &WVPMatrixLight, &ViewProjClip2TexLight);
 
         UpdateSceneCB(pd3dContext, lightPos, lightRadius, depthBiasFromGUI, false, &(WVPMatrixLight), &(WVMatrixITLight), &(mesh->m_WMatrix), &(ViewProjClip2TexLight));
 
         if (g_subsetToRender == -1)
-            mesh->m_Mesh.RenderBounded(pd3dContext, D3DXVECTOR3(0, 0, 0), D3DXVECTOR3(100000, 100000, 100000), 0);
+            mesh->m_Mesh.RenderBounded(pd3dContext, DirectX::XMFLOAT3(0, 0, 0), DirectX::XMFLOAT3(100000, 100000, 100000), 0);
         else
-            mesh->m_Mesh.RenderSubsetBounded(0, g_subsetToRender, pd3dContext, D3DXVECTOR3(0, 0, 0), D3DXVECTOR3(10000, 10000, 10000), false, 0);
+            mesh->m_Mesh.RenderSubsetBounded(0, g_subsetToRender, pd3dContext, DirectX::XMFLOAT3(0, 0, 0), DirectX::XMFLOAT3(10000, 10000, 10000), false, 0);
     }
 }
 
@@ -3228,109 +3201,109 @@ void changeSMTaps(ID3D11DeviceContext *pd3dContext)
     if (g_smTaps != 1 && g_smTaps != 8 && g_smTaps != 16 && g_smTaps != 28)
         g_smTaps = 1;
 
-    D3DXVECTOR4 PoissonDisk1[1] = {D3DXVECTOR4(0.0f, 0.0f, 0, 0)};
+    DirectX::XMFLOAT4 PoissonDisk1[1] = {DirectX::XMFLOAT4(0.0f, 0.0f, 0, 0)};
 
-    D3DXVECTOR4 PoissonDisk8[8] =
+    DirectX::XMFLOAT4 PoissonDisk8[8] =
         {
-            D3DXVECTOR4(0.02902336f, -0.762744f, 0, 0),
-            D3DXVECTOR4(-0.4718729f, -0.09262539f, 0, 0),
-            D3DXVECTOR4(0.1000665f, -0.09762577f, 0, 0),
-            D3DXVECTOR4(0.2378338f, 0.4170297f, 0, 0),
-            D3DXVECTOR4(0.9537742f, 0.1807702f, 0, 0),
-            D3DXVECTOR4(0.6016041f, -0.4252017f, 0, 0),
-            D3DXVECTOR4(-0.741717f, -0.5353929f, 0, 0),
-            D3DXVECTOR4(-0.1786781f, 0.8091267f, 0, 0)};
+            DirectX::XMFLOAT4(0.02902336f, -0.762744f, 0, 0),
+            DirectX::XMFLOAT4(-0.4718729f, -0.09262539f, 0, 0),
+            DirectX::XMFLOAT4(0.1000665f, -0.09762577f, 0, 0),
+            DirectX::XMFLOAT4(0.2378338f, 0.4170297f, 0, 0),
+            DirectX::XMFLOAT4(0.9537742f, 0.1807702f, 0, 0),
+            DirectX::XMFLOAT4(0.6016041f, -0.4252017f, 0, 0),
+            DirectX::XMFLOAT4(-0.741717f, -0.5353929f, 0, 0),
+            DirectX::XMFLOAT4(-0.1786781f, 0.8091267f, 0, 0)};
 
-    D3DXVECTOR4 PoissonDisk16[16] =
+    DirectX::XMFLOAT4 PoissonDisk16[16] =
         {
-            D3DXVECTOR4(0.1904656f, -0.6218426f, 0, 0),
-            D3DXVECTOR4(-0.1258488f, -0.9434036f, 0, 0),
-            D3DXVECTOR4(0.5911888f, -0.345617f, 0, 0),
-            D3DXVECTOR4(0.1664507f, -0.04516677f, 0, 0),
-            D3DXVECTOR4(-0.1608483f, -0.3104914f, 0, 0),
-            D3DXVECTOR4(-0.5286239f, -0.6659128f, 0, 0),
-            D3DXVECTOR4(-0.3251964f, 0.05574534f, 0, 0),
-            D3DXVECTOR4(0.7012196f, 0.05406655f, 0, 0),
-            D3DXVECTOR4(0.3361487f, 0.4192253f, 0, 0),
-            D3DXVECTOR4(0.7241808f, 0.5223625f, 0, 0),
-            D3DXVECTOR4(-0.599312f, 0.6524374f, 0, 0),
-            D3DXVECTOR4(-0.8909158f, -0.3729527f, 0, 0),
-            D3DXVECTOR4(-0.2111304f, 0.4643686f, 0, 0),
-            D3DXVECTOR4(0.1620989f, 0.9808305f, 0, 0),
-            D3DXVECTOR4(-0.8806558f, 0.09435279f, 0, 0),
-            D3DXVECTOR4(-0.2311532f, 0.8682256f, 0, 0)};
+            DirectX::XMFLOAT4(0.1904656f, -0.6218426f, 0, 0),
+            DirectX::XMFLOAT4(-0.1258488f, -0.9434036f, 0, 0),
+            DirectX::XMFLOAT4(0.5911888f, -0.345617f, 0, 0),
+            DirectX::XMFLOAT4(0.1664507f, -0.04516677f, 0, 0),
+            DirectX::XMFLOAT4(-0.1608483f, -0.3104914f, 0, 0),
+            DirectX::XMFLOAT4(-0.5286239f, -0.6659128f, 0, 0),
+            DirectX::XMFLOAT4(-0.3251964f, 0.05574534f, 0, 0),
+            DirectX::XMFLOAT4(0.7012196f, 0.05406655f, 0, 0),
+            DirectX::XMFLOAT4(0.3361487f, 0.4192253f, 0, 0),
+            DirectX::XMFLOAT4(0.7241808f, 0.5223625f, 0, 0),
+            DirectX::XMFLOAT4(-0.599312f, 0.6524374f, 0, 0),
+            DirectX::XMFLOAT4(-0.8909158f, -0.3729527f, 0, 0),
+            DirectX::XMFLOAT4(-0.2111304f, 0.4643686f, 0, 0),
+            DirectX::XMFLOAT4(0.1620989f, 0.9808305f, 0, 0),
+            DirectX::XMFLOAT4(-0.8806558f, 0.09435279f, 0, 0),
+            DirectX::XMFLOAT4(-0.2311532f, 0.8682256f, 0, 0)};
 
-    D3DXVECTOR4 PoissonDisk24[24] =
+    DirectX::XMFLOAT4 PoissonDisk24[24] =
         {
-            D3DXVECTOR4(0.3818467f, 0.5925183f, 0, 0),
-            D3DXVECTOR4(0.1798417f, 0.8695328f, 0, 0),
-            D3DXVECTOR4(0.09424125f, 0.3906686f, 0, 0),
-            D3DXVECTOR4(0.1988628f, 0.05610655f, 0, 0),
-            D3DXVECTOR4(0.7975256f, 0.6026196f, 0, 0),
-            D3DXVECTOR4(0.7692417f, 0.1346178f, 0, 0),
-            D3DXVECTOR4(-0.3684688f, 0.5602454f, 0, 0),
-            D3DXVECTOR4(-0.1773221f, 0.1597976f, 0, 0),
-            D3DXVECTOR4(-0.1607566f, 0.8796939f, 0, 0),
-            D3DXVECTOR4(-0.766114f, 0.4488805f, 0, 0),
-            D3DXVECTOR4(-0.601667f, 0.7814722f, 0, 0),
-            D3DXVECTOR4(-0.506153f, 0.1493255f, 0, 0),
-            D3DXVECTOR4(-0.8958725f, -0.01973226f, 0, 0),
-            D3DXVECTOR4(0.8752386f, -0.4413323f, 0, 0),
-            D3DXVECTOR4(0.5006013f, -0.07411311f, 0, 0),
-            D3DXVECTOR4(0.4929055f, -0.4686971f, 0, 0),
-            D3DXVECTOR4(-0.05599103f, -0.2501699f, 0, 0),
-            D3DXVECTOR4(-0.5142418f, -0.3453796f, 0, 0),
-            D3DXVECTOR4(-0.493443f, -0.762339f, 0, 0),
-            D3DXVECTOR4(-0.2623769f, -0.5478004f, 0, 0),
-            D3DXVECTOR4(0.1288256f, -0.5584031f, 0, 0),
-            D3DXVECTOR4(-0.8512651f, -0.4920075f, 0, 0),
-            D3DXVECTOR4(-0.1360606f, -0.9041532f, 0, 0),
-            D3DXVECTOR4(0.3511299f, -0.8271493f, 0, 0)};
+            DirectX::XMFLOAT4(0.3818467f, 0.5925183f, 0, 0),
+            DirectX::XMFLOAT4(0.1798417f, 0.8695328f, 0, 0),
+            DirectX::XMFLOAT4(0.09424125f, 0.3906686f, 0, 0),
+            DirectX::XMFLOAT4(0.1988628f, 0.05610655f, 0, 0),
+            DirectX::XMFLOAT4(0.7975256f, 0.6026196f, 0, 0),
+            DirectX::XMFLOAT4(0.7692417f, 0.1346178f, 0, 0),
+            DirectX::XMFLOAT4(-0.3684688f, 0.5602454f, 0, 0),
+            DirectX::XMFLOAT4(-0.1773221f, 0.1597976f, 0, 0),
+            DirectX::XMFLOAT4(-0.1607566f, 0.8796939f, 0, 0),
+            DirectX::XMFLOAT4(-0.766114f, 0.4488805f, 0, 0),
+            DirectX::XMFLOAT4(-0.601667f, 0.7814722f, 0, 0),
+            DirectX::XMFLOAT4(-0.506153f, 0.1493255f, 0, 0),
+            DirectX::XMFLOAT4(-0.8958725f, -0.01973226f, 0, 0),
+            DirectX::XMFLOAT4(0.8752386f, -0.4413323f, 0, 0),
+            DirectX::XMFLOAT4(0.5006013f, -0.07411311f, 0, 0),
+            DirectX::XMFLOAT4(0.4929055f, -0.4686971f, 0, 0),
+            DirectX::XMFLOAT4(-0.05599103f, -0.2501699f, 0, 0),
+            DirectX::XMFLOAT4(-0.5142418f, -0.3453796f, 0, 0),
+            DirectX::XMFLOAT4(-0.493443f, -0.762339f, 0, 0),
+            DirectX::XMFLOAT4(-0.2623769f, -0.5478004f, 0, 0),
+            DirectX::XMFLOAT4(0.1288256f, -0.5584031f, 0, 0),
+            DirectX::XMFLOAT4(-0.8512651f, -0.4920075f, 0, 0),
+            DirectX::XMFLOAT4(-0.1360606f, -0.9041532f, 0, 0),
+            DirectX::XMFLOAT4(0.3511299f, -0.8271493f, 0, 0)};
 
-    D3DXVECTOR4 PoissonDisk28[28] =
+    DirectX::XMFLOAT4 PoissonDisk28[28] =
         {
-            D3DXVECTOR4(-0.6905488f, 0.09492259f, 0, 0),
-            D3DXVECTOR4(-0.7239041f, -0.3711901f, 0, 0),
-            D3DXVECTOR4(-0.1990684f, -0.1351167f, 0, 0),
-            D3DXVECTOR4(-0.8588699f, 0.4396836f, 0, 0),
-            D3DXVECTOR4(-0.4826424f, 0.320396f, 0, 0),
-            D3DXVECTOR4(-0.9968387f, 0.01040132f, 0, 0),
-            D3DXVECTOR4(-0.5230064f, -0.596889f, 0, 0),
-            D3DXVECTOR4(-0.2146133f, -0.6254999f, 0, 0),
-            D3DXVECTOR4(-0.6389362f, 0.7377159f, 0, 0),
-            D3DXVECTOR4(-0.1776157f, 0.6040277f, 0, 0),
-            D3DXVECTOR4(-0.01479932f, 0.2212604f, 0, 0),
-            D3DXVECTOR4(-0.3635045f, -0.8955025f, 0, 0),
-            D3DXVECTOR4(0.3450507f, -0.7505886f, 0, 0),
-            D3DXVECTOR4(0.1438699f, -0.1978877f, 0, 0),
-            D3DXVECTOR4(0.06733564f, -0.9922826f, 0, 0),
-            D3DXVECTOR4(0.1302602f, 0.758476f, 0, 0),
-            D3DXVECTOR4(-0.3056195f, 0.9038011f, 0, 0),
-            D3DXVECTOR4(0.387158f, 0.5397643f, 0, 0),
-            D3DXVECTOR4(0.1010145f, -0.5530168f, 0, 0),
-            D3DXVECTOR4(0.6531418f, 0.08325134f, 0, 0),
-            D3DXVECTOR4(0.3876107f, -0.4529504f, 0, 0),
-            D3DXVECTOR4(0.7198777f, -0.3464415f, 0, 0),
-            D3DXVECTOR4(0.9582281f, -0.1639438f, 0, 0),
-            D3DXVECTOR4(0.6608706f, -0.7009276f, 0, 0),
-            D3DXVECTOR4(0.2853746f, 0.1097673f, 0, 0),
-            D3DXVECTOR4(0.715556f, 0.3905755f, 0, 0),
-            D3DXVECTOR4(0.6451758f, 0.7568412f, 0, 0),
-            D3DXVECTOR4(0.4597791f, -0.1513058f, 0, 0)};
+            DirectX::XMFLOAT4(-0.6905488f, 0.09492259f, 0, 0),
+            DirectX::XMFLOAT4(-0.7239041f, -0.3711901f, 0, 0),
+            DirectX::XMFLOAT4(-0.1990684f, -0.1351167f, 0, 0),
+            DirectX::XMFLOAT4(-0.8588699f, 0.4396836f, 0, 0),
+            DirectX::XMFLOAT4(-0.4826424f, 0.320396f, 0, 0),
+            DirectX::XMFLOAT4(-0.9968387f, 0.01040132f, 0, 0),
+            DirectX::XMFLOAT4(-0.5230064f, -0.596889f, 0, 0),
+            DirectX::XMFLOAT4(-0.2146133f, -0.6254999f, 0, 0),
+            DirectX::XMFLOAT4(-0.6389362f, 0.7377159f, 0, 0),
+            DirectX::XMFLOAT4(-0.1776157f, 0.6040277f, 0, 0),
+            DirectX::XMFLOAT4(-0.01479932f, 0.2212604f, 0, 0),
+            DirectX::XMFLOAT4(-0.3635045f, -0.8955025f, 0, 0),
+            DirectX::XMFLOAT4(0.3450507f, -0.7505886f, 0, 0),
+            DirectX::XMFLOAT4(0.1438699f, -0.1978877f, 0, 0),
+            DirectX::XMFLOAT4(0.06733564f, -0.9922826f, 0, 0),
+            DirectX::XMFLOAT4(0.1302602f, 0.758476f, 0, 0),
+            DirectX::XMFLOAT4(-0.3056195f, 0.9038011f, 0, 0),
+            DirectX::XMFLOAT4(0.387158f, 0.5397643f, 0, 0),
+            DirectX::XMFLOAT4(0.1010145f, -0.5530168f, 0, 0),
+            DirectX::XMFLOAT4(0.6531418f, 0.08325134f, 0, 0),
+            DirectX::XMFLOAT4(0.3876107f, -0.4529504f, 0, 0),
+            DirectX::XMFLOAT4(0.7198777f, -0.3464415f, 0, 0),
+            DirectX::XMFLOAT4(0.9582281f, -0.1639438f, 0, 0),
+            DirectX::XMFLOAT4(0.6608706f, -0.7009276f, 0, 0),
+            DirectX::XMFLOAT4(0.2853746f, 0.1097673f, 0, 0),
+            DirectX::XMFLOAT4(0.715556f, 0.3905755f, 0, 0),
+            DirectX::XMFLOAT4(0.6451758f, 0.7568412f, 0, 0),
+            DirectX::XMFLOAT4(0.4597791f, -0.1513058f, 0, 0)};
 
     D3D11_MAPPED_SUBRESOURCE MappedResource;
     pd3dContext->Map(g_pcbPSSMTapLocations, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
     CB_SM_TAP_LOCS *pSMTaps = (CB_SM_TAP_LOCS *)MappedResource.pData;
     for (int i = 0; i < MAX_P_SAMPLES; ++i)
-        pSMTaps->samples[i] = D3DXVECTOR4(1.f, 1.f, 1.f, 1.f);
+        pSMTaps->samples[i] = DirectX::XMFLOAT4(1.f, 1.f, 1.f, 1.f);
     if (g_smTaps == 1)
-        memcpy(pSMTaps->samples, PoissonDisk1, g_smTaps * sizeof(D3DXVECTOR4));
+        memcpy(pSMTaps->samples, PoissonDisk1, g_smTaps * sizeof(DirectX::XMFLOAT4));
     else if (g_smTaps == 8)
-        memcpy(pSMTaps->samples, PoissonDisk8, g_smTaps * sizeof(D3DXVECTOR4));
+        memcpy(pSMTaps->samples, PoissonDisk8, g_smTaps * sizeof(DirectX::XMFLOAT4));
     else if (g_smTaps == 16)
-        memcpy(pSMTaps->samples, PoissonDisk16, g_smTaps * sizeof(D3DXVECTOR4));
+        memcpy(pSMTaps->samples, PoissonDisk16, g_smTaps * sizeof(DirectX::XMFLOAT4));
     else if (g_smTaps == 28)
-        memcpy(pSMTaps->samples, PoissonDisk28, g_smTaps * sizeof(D3DXVECTOR4));
+        memcpy(pSMTaps->samples, PoissonDisk28, g_smTaps * sizeof(DirectX::XMFLOAT4));
     pSMTaps->numTaps = g_smTaps;
     pSMTaps->filterSize = g_smFilterSize;
     pd3dContext->Unmap(g_pcbPSSMTapLocations, 0);
@@ -3343,16 +3316,16 @@ void changeSMTaps(ID3D11DeviceContext *pd3dContext)
 float speedDelta = 0.25f;
 
 #define NUM_LIGHT_PRESETS 6
-D3DXVECTOR3 g_LightPresetPos[NUM_LIGHT_PRESETS];
+DirectX::XMFLOAT3 g_LightPresetPos[NUM_LIGHT_PRESETS];
 
 void initializePresetLight()
 {
-    g_LightPresetPos[0] = D3DXVECTOR3(-8.19899f, 19.372f, -7.36969f);
-    g_LightPresetPos[1] = D3DXVECTOR3(-11.424f, 19.1181f, -0.895488f);
-    g_LightPresetPos[2] = D3DXVECTOR3(-6.54583f, 21.3054f, 0.202703f);
-    g_LightPresetPos[3] = D3DXVECTOR3(-6.06447f, 20.4372f, 6.50802f);
-    g_LightPresetPos[4] = D3DXVECTOR3(-5.75932f, 19.2476f, 9.65256f);
-    g_LightPresetPos[5] = D3DXVECTOR3(1.22359f, 11.173f, 21.2478f);
+    g_LightPresetPos[0] = DirectX::XMFLOAT3(-8.19899f, 19.372f, -7.36969f);
+    g_LightPresetPos[1] = DirectX::XMFLOAT3(-11.424f, 19.1181f, -0.895488f);
+    g_LightPresetPos[2] = DirectX::XMFLOAT3(-6.54583f, 21.3054f, 0.202703f);
+    g_LightPresetPos[3] = DirectX::XMFLOAT3(-6.06447f, 20.4372f, 6.50802f);
+    g_LightPresetPos[4] = DirectX::XMFLOAT3(-5.75932f, 19.2476f, 9.65256f);
+    g_LightPresetPos[5] = DirectX::XMFLOAT3(1.22359f, 11.173f, 21.2478f);
 }
 
 void incrementPresetCamera()
@@ -3366,26 +3339,16 @@ void incrementPresetCamera()
     }
 }
 
-static void stepVelocity(D3DXVECTOR3 &vel, const D3DXVECTOR3 &currPos, const D3DXVECTOR3 &destPos)
-{
-    D3DXVECTOR3 deltaVel = destPos - currPos;
-    const float dist = D3DXVec3Length(&deltaVel);
-    D3DXVec3Normalize(&deltaVel, &deltaVel);
-    deltaVel *= speedDelta;
-    vel = deltaVel;
-}
-
 void updateLight(float dtime)
 {
     if (g_animateLight)
     {
-        D3DXVECTOR3 lightPosVel = D3DXVECTOR3(0, 0, 0);
-        stepVelocity(lightPosVel, g_lightPos, g_lightPosDest);
-        g_lightPos += lightPosVel * dtime;
-        g_LightCamera.SetViewParams(&g_lightPos, &g_center);
+        DirectX::XMStoreFloat3(&g_lightPos, DirectX::XMVectorAdd(DirectX::XMLoadFloat3(&g_lightPos), DirectX::XMVectorScale(DirectX::XMVector3Normalize(DirectX::XMVectorSubtract(DirectX::XMLoadFloat3(&g_lightPosDest), DirectX::XMLoadFloat3(&g_lightPos))), speedDelta * dtime)));
 
-        D3DXVECTOR3 dist = D3DXVECTOR3(g_lightPosDest - g_lightPos);
-        if (D3DXVec3Length(&dist) < 0.1)
+        g_LightCamera.SetViewParams(DirectX::XMLoadFloat3(&g_lightPos), DirectX::XMLoadFloat3(&g_center));
+
+        float dist = DirectX::XMVectorGetX(DirectX::XMVector3Length(DirectX::XMVectorSubtract(DirectX::XMLoadFloat3(&g_lightPosDest), DirectX::XMLoadFloat3(&g_lightPos))));
+        if (dist < 0.1f)
             incrementPresetCamera();
     }
 }

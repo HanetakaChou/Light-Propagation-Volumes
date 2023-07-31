@@ -12,7 +12,6 @@
 //
 // Please direct any bugs or questions to SDKFeedback@nvidia.com
 
-#pragma warning(disable : 4995)
 #include "Lighting.h"
 
 #define MAX_D3D11_VERTEX_STREAMS D3D11_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT
@@ -163,7 +162,7 @@ void Mesh::LoadAlphaMasks(ID3D11Device *pd3dDevice, string stringToRemove, strin
     }
 }
 
-void Mesh::RenderBounded(ID3D11DeviceContext *pd3dDeviceContext, D3DXVECTOR3 minExtentsSize, D3DXVECTOR3 maxExtentsSize,
+void Mesh::RenderBounded(ID3D11DeviceContext *pd3dDeviceContext, DirectX::XMFLOAT3 minExtentsSize, DirectX::XMFLOAT3 maxExtentsSize,
                          UINT iDiffuseSlot,
                          UINT iNormalSlot,
                          UINT iSpecularSlot,
@@ -176,7 +175,7 @@ void Mesh::RenderBounded(ID3D11DeviceContext *pd3dDeviceContext, D3DXVECTOR3 min
 void Mesh::RenderFrameSubsetBounded(UINT iFrame,
                                     bool bAdjacent,
                                     ID3D11DeviceContext *pd3dDeviceContext,
-                                    D3DXVECTOR3 minExtentsSize, D3DXVECTOR3 maxExtentsSize,
+                                    DirectX::XMFLOAT3 minExtentsSize, DirectX::XMFLOAT3 maxExtentsSize,
                                     UINT iDiffuseSlot,
                                     UINT iNormalSlot,
                                     UINT iSpecularSlot,
@@ -213,7 +212,7 @@ void Mesh::RenderFrameSubsetBounded(UINT iFrame,
 void Mesh::RenderMeshSubsetBounded(UINT iMesh,
                                    bool bAdjacent,
                                    ID3D11DeviceContext *pd3dDeviceContext,
-                                   D3DXVECTOR3 minExtentsSize, D3DXVECTOR3 maxExtentsSize,
+                                   DirectX::XMFLOAT3 minExtentsSize, DirectX::XMFLOAT3 maxExtentsSize,
                                    UINT iDiffuseSlot,
                                    UINT iNormalSlot,
                                    UINT iSpecularSlot,
@@ -327,7 +326,7 @@ void Mesh::RenderMeshSubsetBounded(UINT iMesh,
 void Mesh::RenderSubsetBounded(UINT iMesh,
                                UINT subset,
                                ID3D11DeviceContext *pd3dDeviceContext,
-                               D3DXVECTOR3 minExtentsSize, D3DXVECTOR3 maxExtentsSize,
+                               DirectX::XMFLOAT3 minExtentsSize, DirectX::XMFLOAT3 maxExtentsSize,
                                bool bAdjacent,
                                UINT iDiffuseSlot,
                                UINT iNormalSlot,
@@ -436,8 +435,8 @@ void Mesh::ComputeSubmeshBoundingVolumes()
 {
     SDKMESH_SUBSET *pSubset = NULL;
     D3D11_PRIMITIVE_TOPOLOGY PrimType;
-    D3DXVECTOR3 lower;
-    D3DXVECTOR3 upper;
+    DirectX::XMFLOAT3 lower;
+    DirectX::XMFLOAT3 upper;
 
     m_numMeshes = m_pMeshHeader->NumMeshes;
     m_numSubsets = new int[m_numMeshes];
@@ -445,8 +444,8 @@ void Mesh::ComputeSubmeshBoundingVolumes()
     SDKMESH_MESH *currentMesh = &m_pMeshArray[0];
     int tris = 0;
 
-    m_BoundingBoxCenterSubsets = new D3DXVECTOR3 *[m_pMeshHeader->NumMeshes];
-    m_BoundingBoxExtentsSubsets = new D3DXVECTOR3 *[m_pMeshHeader->NumMeshes];
+    m_BoundingBoxCenterSubsets = new DirectX::XMFLOAT3 *[m_pMeshHeader->NumMeshes];
+    m_BoundingBoxExtentsSubsets = new DirectX::XMFLOAT3 *[m_pMeshHeader->NumMeshes];
 
     for (UINT meshi = 0; meshi < m_pMeshHeader->NumMeshes; ++meshi)
     {
@@ -462,8 +461,8 @@ void Mesh::ComputeSubmeshBoundingVolumes()
             indsize = 4;
         }
 
-        m_BoundingBoxCenterSubsets[meshi] = new D3DXVECTOR3[currentMesh->NumSubsets];
-        m_BoundingBoxExtentsSubsets[meshi] = new D3DXVECTOR3[currentMesh->NumSubsets];
+        m_BoundingBoxCenterSubsets[meshi] = new DirectX::XMFLOAT3[currentMesh->NumSubsets];
+        m_BoundingBoxExtentsSubsets[meshi] = new DirectX::XMFLOAT3[currentMesh->NumSubsets];
 
         m_numSubsets[meshi] = currentMesh->NumSubsets;
 
@@ -511,7 +510,7 @@ void Mesh::ComputeSubmeshBoundingVolumes()
                     current_ind = ind[vertind];
                 }
                 tris++;
-                D3DXVECTOR3 *pt = (D3DXVECTOR3 *)&(verts[stride * current_ind]);
+                DirectX::XMFLOAT3 *pt = (DirectX::XMFLOAT3 *)&(verts[stride * current_ind]);
                 if (pt->x < lower.x)
                 {
                     lower.x = pt->x;
@@ -538,10 +537,12 @@ void Mesh::ComputeSubmeshBoundingVolumes()
                 }
             } // end for loop over vertices
 
-            D3DXVECTOR3 half = upper - lower;
-            half *= 0.5f;
+            DirectX::XMFLOAT3 center;
+            DirectX::XMStoreFloat3(&center, DirectX::XMVectorScale(DirectX::XMVectorAdd(DirectX::XMLoadFloat3(&upper), DirectX::XMLoadFloat3(&lower)), 0.5f));
+            DirectX::XMFLOAT3 half;
+            DirectX::XMStoreFloat3(&half, DirectX::XMVectorScale(DirectX::XMVectorSubtract(DirectX::XMLoadFloat3(&upper), DirectX::XMLoadFloat3(&lower)), 0.5f));
 
-            m_BoundingBoxCenterSubsets[meshi][subset] = lower + half;
+            m_BoundingBoxCenterSubsets[meshi][subset] = center;
             m_BoundingBoxExtentsSubsets[meshi][subset] = half;
 
         } // end for loop over subsets

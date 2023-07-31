@@ -21,10 +21,6 @@
 #include "DXUTsettingsdlg.h"
 #include "SDKmisc.h"
 #include "SDKMesh.h"
-#include <D3DX11tex.h>
-#include <D3DX11.h>
-#include <D3DX11core.h>
-#include <D3DX11async.h>
 #include <strsafe.h>
 #include <math.h>
 #include <assert.h>
@@ -57,8 +53,8 @@ public:
 private:
     int m_numMeshes;
     int *m_numSubsets;
-    D3DXVECTOR3 **m_BoundingBoxCenterSubsets;
-    D3DXVECTOR3 **m_BoundingBoxExtentsSubsets;
+    DirectX::XMFLOAT3 **m_BoundingBoxCenterSubsets;
+    DirectX::XMFLOAT3 **m_BoundingBoxExtentsSubsets;
 
     unsigned int m_numMaterials;
     ID3D11ShaderResourceView **pAlphaMaskRV11s;
@@ -66,7 +62,7 @@ private:
     void RenderFrameSubsetBounded(UINT iFrame,
                                   bool bAdjacent,
                                   ID3D11DeviceContext *pd3dDeviceContext,
-                                  D3DXVECTOR3 minSize, D3DXVECTOR3 maxSize,
+                                  DirectX::XMFLOAT3 minSize, DirectX::XMFLOAT3 maxSize,
                                   UINT iDiffuseSlot,
                                   UINT iNormalSlot,
                                   UINT iSpecularSlot,
@@ -76,7 +72,7 @@ private:
     void RenderMeshSubsetBounded(UINT iMesh,
                                  bool bAdjacent,
                                  ID3D11DeviceContext *pd3dDeviceContext,
-                                 D3DXVECTOR3 minSize, D3DXVECTOR3 maxSize,
+                                 DirectX::XMFLOAT3 minSize, DirectX::XMFLOAT3 maxSize,
                                  UINT iDiffuseSlot,
                                  UINT iNormalSlot,
                                  UINT iSpecularSlot,
@@ -92,7 +88,7 @@ public:
 
     void initializeDefaultNormalmaps(ID3D11Device *pd3dDevice, std::string mapName);
 
-    void RenderBounded(ID3D11DeviceContext *pd3dDeviceContext, D3DXVECTOR3 minSize, D3DXVECTOR3 maxSize,
+    void RenderBounded(ID3D11DeviceContext *pd3dDeviceContext, DirectX::XMFLOAT3 minSize, DirectX::XMFLOAT3 maxSize,
                        UINT iDiffuseSlot = INVALID_SAMPLER_SLOT,
                        UINT iNormalSlot = INVALID_SAMPLER_SLOT,
                        UINT iSpecularSlot = INVALID_SAMPLER_SLOT,
@@ -102,7 +98,7 @@ public:
     void RenderSubsetBounded(UINT iMesh,
                              UINT subset,
                              ID3D11DeviceContext *pd3dDeviceContext,
-                             D3DXVECTOR3 minExtentsSize, D3DXVECTOR3 maxExtentsSize,
+                             DirectX::XMFLOAT3 minExtentsSize, DirectX::XMFLOAT3 maxExtentsSize,
                              bool bAdjacent = false,
                              UINT iDiffuseSlot = INVALID_SAMPLER_SLOT,
                              UINT iNormalSlot = INVALID_SAMPLER_SLOT,
@@ -181,15 +177,15 @@ private:
 public:
     Mesh m_Mesh;
 
-    D3DXMATRIX m_WMatrix;
-    D3DXMATRIX m_Clip2Tex;
+    DirectX::XMFLOAT4X4 m_WMatrix;
+    DirectX::XMFLOAT4X4 m_Clip2Tex;
 
     bool m_UseTexture;
 
     RenderMesh()
     {
-        D3DXMatrixIdentity(&m_WMatrix);
-        m_Clip2Tex = D3DXMATRIX(
+        DirectX::XMStoreFloat4x4(&m_WMatrix, DirectX::XMMatrixIdentity());
+        m_Clip2Tex = DirectX::XMFLOAT4X4(
             0.5, 0, 0, 0,
             0, -0.5, 0, 0,
             0, 0, 1, 0,
@@ -214,16 +210,15 @@ public:
 
     void calculateWorldMatrix()
     {
-        D3DXMATRIX mTranslate, mRotateX, mRotateY, mRotateZ, mScale;
-        D3DXMatrixTranslation(&mTranslate, m_translateX, m_translateY, m_translateZ);
-        D3DXMatrixRotationX(&mRotateX, m_rotateX);
-        D3DXMatrixRotationY(&mRotateY, m_rotateY);
-        D3DXMatrixRotationZ(&mRotateZ, m_rotateZ);
-        D3DXMatrixScaling(&mScale, m_scaleX, m_scaleY, m_scaleZ);
-        m_WMatrix = mTranslate * mScale * mRotateX * mRotateY * mRotateZ;
+        DirectX::XMMATRIX mTranslate = DirectX::XMMatrixTranslation(m_translateX, m_translateY, m_translateZ);
+        DirectX::XMMATRIX mRotateX = DirectX::XMMatrixRotationX(m_rotateX);
+        DirectX::XMMATRIX mRotateY = DirectX::XMMatrixRotationY(m_rotateY);
+        DirectX::XMMATRIX mRotateZ = DirectX::XMMatrixRotationZ(m_rotateZ);
+        DirectX::XMMATRIX mScale = DirectX::XMMatrixScaling(m_scaleX, m_scaleY, m_scaleZ);
+        DirectX::XMStoreFloat4x4(&m_WMatrix, DirectX::XMMatrixMultiply(DirectX::XMMatrixMultiply(DirectX::XMMatrixMultiply(DirectX::XMMatrixMultiply(mTranslate, mScale), mRotateX), mRotateY), mRotateZ));
     }
 
-    void setWorldMatrix(D3DXMATRIX m) { m_WMatrix = m; }
+    void setWorldMatrix(DirectX::XMFLOAT4X4 m) { m_WMatrix = m; }
 
     void setWorldMatrixTranslate(float translateX, float translateY, float translateZ)
     {
@@ -233,12 +228,12 @@ public:
         calculateWorldMatrix();
     }
 
-    void createMatrices(D3DXMATRIX lightProjection, D3DXMATRIX viewMatrix, D3DXMATRIX *WVMatrix, D3DXMATRIX *WVMatrixIT, D3DXMATRIX *WVPMatrix, D3DXMATRIX *ViewProjClip2Tex)
+    void createMatrices(DirectX::XMFLOAT4X4 lightProjection, DirectX::XMFLOAT4X4 viewMatrix, DirectX::XMFLOAT4X4 *WVMatrix, DirectX::XMFLOAT4X4 *WVMatrixIT, DirectX::XMFLOAT4X4 *WVPMatrix, DirectX::XMFLOAT4X4 *ViewProjClip2Tex)
     {
-        *WVMatrix = m_WMatrix * viewMatrix;
-        D3DXMatrixInverse(WVMatrixIT, NULL, WVMatrix);
-        *WVPMatrix = (*WVMatrix) * lightProjection;
-        D3DXMatrixMultiply(ViewProjClip2Tex, WVPMatrix, &m_Clip2Tex);
+        DirectX::XMStoreFloat4x4(WVMatrix, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&m_WMatrix), DirectX::XMLoadFloat4x4(&viewMatrix)));
+        DirectX::XMStoreFloat4x4(WVMatrixIT, DirectX::XMMatrixInverse(NULL, DirectX::XMLoadFloat4x4(WVMatrix)));
+        DirectX::XMStoreFloat4x4(WVPMatrix, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(WVMatrix), DirectX::XMLoadFloat4x4(&lightProjection)));
+        DirectX::XMStoreFloat4x4(ViewProjClip2Tex, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(WVPMatrix), DirectX::XMLoadFloat4x4(&m_Clip2Tex)));
     }
 
     ~RenderMesh()
@@ -249,15 +244,15 @@ public:
 
 struct CB_VS_PER_OBJECT
 {
-    D3DXMATRIX m_WorldViewProj;
-    D3DXMATRIX m_WorldViewIT;
-    D3DXMATRIX m_World;
-    D3DXMATRIX m_LightViewProjClip2Tex;
+    DirectX::XMFLOAT4X4 m_WorldViewProj;
+    DirectX::XMFLOAT4X4 m_WorldViewIT;
+    DirectX::XMFLOAT4X4 m_World;
+    DirectX::XMFLOAT4X4 m_LightViewProjClip2Tex;
 };
 
 struct CB_VS_GLOBAL
 {
-    D3DXVECTOR4 g_lightWorldPos;
+    DirectX::XMFLOAT4 g_lightWorldPos;
     float g_depthBiasFromGUI;
     int bUseSM;
     int g_minCascadeMethod;
@@ -266,15 +261,15 @@ struct CB_VS_GLOBAL
 
 struct CB_SIMPLE_OBJECTS
 {
-    D3DXMATRIX m_WorldViewProj;
-    D3DXVECTOR4 m_color;
-    D3DXVECTOR4 m_lpvScale;
-    D3DXVECTOR4 m_sphereScale;
+    DirectX::XMFLOAT4X4 m_WorldViewProj;
+    DirectX::XMFLOAT4 m_color;
+    DirectX::XMFLOAT4 m_lpvScale;
+    DirectX::XMFLOAT4 m_sphereScale;
 };
 
 struct VIZ_LPV
 {
-    D3DXVECTOR3 LPVSpacePos;
+    DirectX::XMFLOAT3 LPVSpacePos;
     float padding;
 };
 
@@ -308,13 +303,13 @@ struct CB_RENDER
     int useDirectionalDerivativeClamping;
     float directionalDampingAmount;
 
-    D3DXMATRIX worldToLPVNormTex;
-    D3DXMATRIX worldToLPVNormTex1;
-    D3DXMATRIX worldToLPVNormTex2;
+    DirectX::XMFLOAT4X4 worldToLPVNormTex;
+    DirectX::XMFLOAT4X4 worldToLPVNormTex1;
+    DirectX::XMFLOAT4X4 worldToLPVNormTex2;
 
-    D3DXMATRIX worldToLPVNormTexRender;
-    D3DXMATRIX worldToLPVNormTexRender1;
-    D3DXMATRIX worldToLPVNormTexRender2;
+    DirectX::XMFLOAT4X4 worldToLPVNormTexRender;
+    DirectX::XMFLOAT4X4 worldToLPVNormTexRender1;
+    DirectX::XMFLOAT4X4 worldToLPVNormTexRender2;
 };
 
 struct CB_RENDER_LPV
@@ -337,7 +332,7 @@ struct CB_LPV_INITIALIZE
     float lightStrength;
     float temp;
 
-    D3DXMATRIX InvProj;
+    DirectX::XMFLOAT4X4 InvProj;
 };
 
 struct CB_LPV_INITIALIZE3
@@ -373,9 +368,9 @@ struct CB_LPV_PROPAGATE
 
 struct CB_LPV_INITIALIZE2
 {
-    D3DXMATRIX g_ViewToLPV;
-    D3DXMATRIX g_LPVtoView;
-    D3DXVECTOR3 lightDirGridSpace; // light direction in the grid's space
+    DirectX::XMFLOAT4X4 g_ViewToLPV;
+    DirectX::XMFLOAT4X4 g_LPVtoView;
+    DirectX::XMFLOAT3 lightDirGridSpace; // light direction in the grid's space
     float displacement;
 };
 
@@ -393,7 +388,7 @@ struct CB_MESH_RENDER_OPTIONS
 // solid angle gives the fractional solid angle that that face subtends
 struct propagateConsts
 {
-    D3DXVECTOR4 neighborOffset;
+    DirectX::XMFLOAT4 neighborOffset;
     float solidAngle;
     float x;
     float y;
@@ -445,12 +440,12 @@ struct CB_SM_TAP_LOCS
     float filterSize;
     float padding7;
     float padding8;
-    D3DXVECTOR4 samples[MAX_P_SAMPLES];
+    DirectX::XMFLOAT4 samples[MAX_P_SAMPLES];
 };
 
 struct CB_INVPROJ_MATRIX
 {
-    D3DXMATRIX m_InverseProjMatrix;
+    DirectX::XMFLOAT4X4 m_InverseProjMatrix;
 };
 
 //--------------------------------------------------------------------------------------
@@ -459,7 +454,7 @@ struct CB_INVPROJ_MATRIX
 void CALLBACK OnD3D11ReleasingSwapChain(void *pUserContext);
 void CALLBACK OnD3D11DestroyDevice(void *pUserContext);
 HRESULT CompileSolverShaders(ID3D11Device *pd3dDevice);
-HRESULT UpdateSceneCB(ID3D11DeviceContext *pd3dContext, D3DXVECTOR3 lightPos, const float lightRadius, float depthBias, bool bUseSM, D3DXMATRIX *WVPMatrix, D3DXMATRIX *WVMatrixIT, D3DXMATRIX *WMatrix, D3DXMATRIX *lightViewProjClip2Tex = NULL);
+HRESULT UpdateSceneCB(ID3D11DeviceContext *pd3dContext, DirectX::XMFLOAT3 lightPos, const float lightRadius, float depthBias, bool bUseSM, DirectX::XMFLOAT4X4 *WVPMatrix, DirectX::XMFLOAT4X4 *WVMatrixIT, DirectX::XMFLOAT4X4 *WMatrix, DirectX::XMFLOAT4X4 *lightViewProjClip2Tex = NULL);
 
 // creation code
 void createPropagationAndGeometryVolumes(ID3D11Device *pd3dDevice);
@@ -474,18 +469,18 @@ void invokeHierarchyBasedPropagation(ID3D11DeviceContext *pd3dContext, bool useH
 void accumulateLPVs(ID3D11DeviceContext *pd3dContext, int batch, SimpleRT_RGB *LPVPropagate, SimpleRT_RGB *LPVAccumulate);
 
 // LPV initialization code
-void initializeLPV(ID3D11DeviceContext *pd3dContext, SimpleRT_RGB *LPVAccumulate, SimpleRT_RGB *LPVPropagate, D3DXMATRIX mShadowMatrix, D3DXMATRIX mProjectionMatrix, SimpleRT *RSMColorRT, SimpleRT *RSMNormalRT, DepthRT *g_pShadowMapDS, float fovy, float aspectRatio, float nearPlane, float farPlane, bool useDirectional);
+void initializeLPV(ID3D11DeviceContext *pd3dContext, SimpleRT_RGB *LPVAccumulate, SimpleRT_RGB *LPVPropagate, DirectX::XMFLOAT4X4 mShadowMatrix, DirectX::XMFLOAT4X4 mProjectionMatrix, SimpleRT *RSMColorRT, SimpleRT *RSMNormalRT, DepthRT *g_pShadowMapDS, float fovy, float aspectRatio, float nearPlane, float farPlane, bool useDirectional);
 
 // GV initialization code
-void initializeGV(ID3D11DeviceContext *pd3dContext, SimpleRT *GV, SimpleRT *GVColor, SimpleRT *RSMAlbedoRT, SimpleRT *RSMNormalRT, DepthRT *shadowMapDS, float fovy, float aspectRatio, float nearPlane, float farPlane, bool useDirectional, const D3DXMATRIX *projectionMatrix, D3DXMATRIX viewMatrix);
+void initializeGV(ID3D11DeviceContext *pd3dContext, SimpleRT *GV, SimpleRT *GVColor, SimpleRT *RSMAlbedoRT, SimpleRT *RSMNormalRT, DepthRT *shadowMapDS, float fovy, float aspectRatio, float nearPlane, float farPlane, bool useDirectional, const DirectX::XMFLOAT4X4 *projectionMatrix, DirectX::XMFLOAT4X4 viewMatrix);
 
 // RSM initialization code
 void renderRSM(ID3D11DeviceContext *pd3dContext, bool depthPeel, SimpleRT *pRSMColorRT, SimpleRT *pRSMAlbedoRT, SimpleRT *pRSMNormalRT, DepthRT *pShadowMapDS, DepthRT *pShadowTex,
-               const D3DXMATRIX *projectionMatrix, const D3DXMATRIX *viewMatrix, int numMeshes, RenderMesh **meshes, D3D11_VIEWPORT shadowViewport, D3DXVECTOR3 lightPos, const float lightRadius, float depthBiasFromGUI, bool bUseSM);
+               const DirectX::XMFLOAT4X4 *projectionMatrix, const DirectX::XMFLOAT4X4 *viewMatrix, int numMeshes, RenderMesh **meshes, D3D11_VIEWPORT shadowViewport, DirectX::XMFLOAT3 lightPos, const float lightRadius, float depthBiasFromGUI, bool bUseSM);
 
 // just render to the scene shadow map
-void renderShadowMap(ID3D11DeviceContext *pd3dContext, DepthRT *pShadowMapDS, const D3DXMATRIX *projectionMatrix, const D3DXMATRIX *viewMatrix,
-                     int numMeshes, RenderMesh **meshes, D3D11_VIEWPORT shadowViewport, D3DXVECTOR3 lightPos, const float lightRadius, float depthBiasFromGUI);
+void renderShadowMap(ID3D11DeviceContext *pd3dContext, DepthRT *pShadowMapDS, const DirectX::XMFLOAT4X4 *projectionMatrix, const DirectX::XMFLOAT4X4 *viewMatrix,
+                     int numMeshes, RenderMesh **meshes, D3D11_VIEWPORT shadowViewport, DirectX::XMFLOAT3 lightPos, const float lightRadius, float depthBiasFromGUI);
 
 //--------------------------------------------------------------------------------
 // variables:

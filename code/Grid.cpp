@@ -14,7 +14,6 @@
 
 #include "Grid.h"
 #include <math.h>
-#include "d3dx9math.h"
 
 Grid::Grid(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext) : m_pD3DDevice(NULL), m_pD3DContext(NULL), m_layout(NULL), m_renderQuadBuffer(NULL),
                                                                          m_slicesBuffer(NULL), m_boundarySlicesBuffer(NULL), m_boundaryLinesBuffer(NULL),
@@ -25,7 +24,7 @@ Grid::Grid(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext) : m_pD3DD
     SAFE_ACQUIRE(m_pD3DContext, pd3dContext);
 }
 
-HRESULT Grid::Initialize(int gridWidth, int gridHeight, int gridDepth, void *shaderBytecode, SIZE_T shaderBytecodeLength)
+HRESULT Grid::Initialize(int gridWidth, int gridHeight, int gridDepth, void const *shaderBytecode, SIZE_T shaderBytecodeLength)
 {
     HRESULT hr(S_OK);
 
@@ -52,7 +51,7 @@ Grid::~Grid()
     SAFE_RELEASE(m_pD3DContext);
 }
 
-HRESULT Grid::CreateVertexBuffers(void *shaderBytecode, SIZE_T shaderBytecodeLength)
+HRESULT Grid::CreateVertexBuffers(void const *shaderBytecode, SIZE_T shaderBytecodeLength)
 {
     HRESULT hr(S_OK);
 
@@ -168,17 +167,17 @@ void Grid::InitScreenSlice(VS_INPUT_GRID_STRUCT **vertices, int z, int &index)
     float top = 1.0f - py * 2.0f / Height;
     float bottom = 1.0f - ((py + h) * 2.0f / Height);
 
-    tempVertex1.Pos = D3DXVECTOR3(left, top, 0.0f);
-    tempVertex1.Tex = D3DXVECTOR3(0, 0, float(z));
+    tempVertex1.Pos = DirectX::XMFLOAT3(left, top, 0.0f);
+    tempVertex1.Tex = DirectX::XMFLOAT3(0, 0, float(z));
 
-    tempVertex2.Pos = D3DXVECTOR3(right, top, 0.0f);
-    tempVertex2.Tex = D3DXVECTOR3(w, 0, float(z));
+    tempVertex2.Pos = DirectX::XMFLOAT3(right, top, 0.0f);
+    tempVertex2.Tex = DirectX::XMFLOAT3(w, 0, float(z));
 
-    tempVertex3.Pos = D3DXVECTOR3(right, bottom, 0.0f);
-    tempVertex3.Tex = D3DXVECTOR3(w, h, float(z));
+    tempVertex3.Pos = DirectX::XMFLOAT3(right, bottom, 0.0f);
+    tempVertex3.Tex = DirectX::XMFLOAT3(w, h, float(z));
 
-    tempVertex4.Pos = D3DXVECTOR3(left, bottom, 0.0f);
-    tempVertex4.Tex = D3DXVECTOR3(0, h, float(z));
+    tempVertex4.Pos = DirectX::XMFLOAT3(left, bottom, 0.0f);
+    tempVertex4.Tex = DirectX::XMFLOAT3(0, h, float(z));
 
     (*vertices)[index++] = tempVertex1;
     (*vertices)[index++] = tempVertex2;
@@ -203,17 +202,17 @@ void Grid::InitSlice(int z, VS_INPUT_GRID_STRUCT **vertices, int &index)
     float top = 1.0f - 2.0f / h;
     float bottom = -1.0f + 2.0f / h;
 
-    tempVertex1.Pos = D3DXVECTOR3(left, top, 0.0f);
-    tempVertex1.Tex = D3DXVECTOR3(1.0f, 1.0f, float(z));
+    tempVertex1.Pos = DirectX::XMFLOAT3(left, top, 0.0f);
+    tempVertex1.Tex = DirectX::XMFLOAT3(1.0f, 1.0f, float(z));
 
-    tempVertex2.Pos = D3DXVECTOR3(right, top, 0.0f);
-    tempVertex2.Tex = D3DXVECTOR3((w - 1.0f), 1.0f, float(z));
+    tempVertex2.Pos = DirectX::XMFLOAT3(right, top, 0.0f);
+    tempVertex2.Tex = DirectX::XMFLOAT3((w - 1.0f), 1.0f, float(z));
 
-    tempVertex3.Pos = D3DXVECTOR3(right, bottom, 0.0f);
-    tempVertex3.Tex = D3DXVECTOR3((w - 1.0f), (h - 1.0f), float(z));
+    tempVertex3.Pos = DirectX::XMFLOAT3(right, bottom, 0.0f);
+    tempVertex3.Tex = DirectX::XMFLOAT3((w - 1.0f), (h - 1.0f), float(z));
 
-    tempVertex4.Pos = D3DXVECTOR3(left, bottom, 0.0f);
-    tempVertex4.Tex = D3DXVECTOR3(1.0f, (h - 1.0f), float(z));
+    tempVertex4.Pos = DirectX::XMFLOAT3(left, bottom, 0.0f);
+    tempVertex4.Tex = DirectX::XMFLOAT3(1.0f, (h - 1.0f), float(z));
 
     (*vertices)[index++] = tempVertex1;
     (*vertices)[index++] = tempVertex2;
@@ -230,12 +229,12 @@ void Grid::InitLine(float x1, float y1, float x2, float y2, int z,
     int w = m_dim[0];
     int h = m_dim[1];
 
-    tempVertex.Pos = D3DXVECTOR3(x1 * 2.0f / w - 1.0f, -y1 * 2.0f / h + 1.0f, 0.5f);
-    tempVertex.Tex = D3DXVECTOR3(0.0f, 0.0f, float(z));
+    tempVertex.Pos = DirectX::XMFLOAT3(x1 * 2.0f / w - 1.0f, -y1 * 2.0f / h + 1.0f, 0.5f);
+    tempVertex.Tex = DirectX::XMFLOAT3(0.0f, 0.0f, float(z));
     (*vertices)[index++] = tempVertex;
 
-    tempVertex.Pos = D3DXVECTOR3(x2 * 2.0f / w - 1.0f, -y2 * 2.0f / h + 1.0f, 0.5f);
-    tempVertex.Tex = D3DXVECTOR3(0.0f, 0.0f, float(z));
+    tempVertex.Pos = DirectX::XMFLOAT3(x2 * 2.0f / w - 1.0f, -y2 * 2.0f / h + 1.0f, 0.5f);
+    tempVertex.Tex = DirectX::XMFLOAT3(0.0f, 0.0f, float(z));
     (*vertices)[index++] = tempVertex;
 }
 
@@ -315,7 +314,7 @@ void Grid::DrawPrimitive(D3D11_PRIMITIVE_TOPOLOGY PrimitiveType, ID3D11InputLayo
 }
 
 HRESULT Grid::CreateLayout(D3D11_INPUT_ELEMENT_DESC *layoutDesc, UINT numElements,
-                           void *shaderBytecode, SIZE_T shaderBytecodeLength, ID3D11InputLayout **layout)
+                           void const *shaderBytecode, SIZE_T shaderBytecodeLength, ID3D11InputLayout **layout)
 {
     HRESULT hr(S_OK);
     V_RETURN(m_pD3DDevice->CreateInputLayout(layoutDesc, numElements, shaderBytecode, shaderBytecodeLength, layout));

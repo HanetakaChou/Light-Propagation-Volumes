@@ -49,11 +49,11 @@ SamplerState samLinear : register(s0)
 
 float4 loadOffsetTexValue(Texture2DArray tex, uint3 pos)
 {
-    if (pos.x >= LPV3DWidth || pos.x < 1)
+    if (int(pos.x) >= LPV3DWidth || int(pos.x) < 1)
         return float4(0, 0, 0, 0);
-    if (pos.y >= LPV3DHeight || pos.y < 1)
+    if (int(pos.y) >= LPV3DHeight || int(pos.y) < 1)
         return float4(0, 0, 0, 0);
-    if (pos.z >= LPV3DDepth || pos.z < 1)
+    if (int(pos.z) >= LPV3DDepth || int(pos.z) < 1)
         return float4(0, 0, 0, 0);
 
     return tex.Load(int4(pos.x, pos.y, pos.z, 0));
@@ -72,7 +72,7 @@ float4 loadOffsetTexValue(Texture2DArray tex, uint3 pos)
 {
     // find where in the 2d texture that grid point is supposed to land
     bool outside = false;
-    if (globalThreadId.x >= LPV3DWidth || globalThreadId.y >= LPV3DHeight || globalThreadId.z >= LPV3DDepth)
+    if (int(globalThreadId.x) >= LPV3DWidth || int(globalThreadId.y) >= LPV3DHeight || int(globalThreadId.z) >= LPV3DDepth)
         outside = true;
 
     uint3 writePos = globalThreadId.xyz;
@@ -106,7 +106,7 @@ float4 loadOffsetTexValue(Texture2DArray tex, uint3 pos)
 
     // find where in the 2d texture that grid point is supposed to land
     bool outside = false;
-    if (globalThreadId.x >= LPV3DWidth || globalThreadId.y >= LPV3DHeight || globalThreadId.z >= LPV3DDepth)
+    if (int(globalThreadId.x) >= LPV3DWidth || int(globalThreadId.y) >= LPV3DHeight || int(globalThreadId.z) >= LPV3DDepth)
         outside = true;
 
     uint3 writePos = globalThreadId.xyz;

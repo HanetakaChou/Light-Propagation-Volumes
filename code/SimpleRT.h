@@ -15,21 +15,29 @@
 #ifndef SIMPLERT_H
 #define SIMPLERT_H
 
-#include "Defines.h"
+#include "../shaders/Defines.h"
+#include "../dxbc/Hierarchy_DownsampleMax_bytecode.inl"
+#include "../dxbc/Hierarchy_DownsampleMin_bytecode.inl"
+#include "../dxbc/Hierarchy_DownsampleAverage_bytecode.inl"
+#include "../dxbc/Hierarchy_DownsampleAverageInplace_bytecode.inl"
+#include "../dxbc/Hierarchy_Upsample_bytecode.inl"
+#include "../dxbc/Hierarchy_UpsampleBilinear_bytecode.inl"
+#include "../dxbc/Hierarchy_UpsampleBilinearAccumulate_bytecode.inl"
+#include "../dxbc/Hierarchy_UpsampleBilinearAccumulateInplace_bytecode.inl"
 
 struct Tex3PosVertex
 {
-    D3DXVECTOR3 Pos;
-    D3DXVECTOR3 Tex;
-    Tex3PosVertex(D3DXVECTOR3 p, D3DXVECTOR3 t)
+    DirectX::XMFLOAT3 Pos;
+    DirectX::XMFLOAT3 Tex;
+    Tex3PosVertex(DirectX::XMFLOAT3 p, DirectX::XMFLOAT3 t)
     {
         Pos = p;
         Tex = t;
     }
     Tex3PosVertex()
     {
-        Pos = D3DXVECTOR3(0.0f, 0.0f, 0.0f);
-        Tex = D3DXVECTOR3(0.0f, 0.0f, 0.0f);
+        Pos = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+        Tex = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
     }
 };
 
@@ -49,7 +57,6 @@ struct ShaderCompileParams
 };
 static ShaderCompileParams defaultParams = {{0, 0}, 0, 0, false};
 
-HRESULT CompileShaderFromFile(WCHAR *szFileName, LPCSTR szEntryPoint, LPCSTR szShaderModel, ID3DBlob **ppBlobOut, ShaderCompileParams &params = defaultParams);
 void ComputeRowColsForFlat3DTexture(int depth, int &outCols, int &outRows);
 
 class SimpleRT;
@@ -121,100 +128,101 @@ class BasicLPVTransforms
 {
 private:
     // lpv transform matrices
-    D3DXMATRIX m_worldToLPVBB;            // matrix to transform a unit cube centered at world center to the world region occupied by the LPV
-    D3DXMATRIX m_worldToLPVNormTex;       // matrix to transform from world to LPV normalized texture space ( which is 0 to 1 in all 3 dimensions)
-    D3DXMATRIX m_worldToLPVNormTexRender; // matrix to transform from world to LPV normalized texture space without spatial snapping( real cascade position )
+    DirectX::XMFLOAT4X4 m_worldToLPVBB;            // matrix to transform a unit cube centered at world center to the world region occupied by the LPV
+    DirectX::XMFLOAT4X4 m_worldToLPVNormTex;       // matrix to transform from world to LPV normalized texture space ( which is 0 to 1 in all 3 dimensions)
+    DirectX::XMFLOAT4X4 m_worldToLPVNormTexRender; // matrix to transform from world to LPV normalized texture space without spatial snapping( real cascade position )
 
-    D3DXMATRIX m_inverseLPVXform;
-    D3DXMATRIX m_objTranslate;
-    D3DXVECTOR3 m_cellSize;
+    DirectX::XMFLOAT4X4 m_inverseLPVXform;
+    DirectX::XMFLOAT4X4 m_objTranslate;
+    DirectX::XMFLOAT3 m_cellSize;
 
 public:
-    D3DXMATRIX getWorldToLPVNormTex() { return m_worldToLPVNormTex; }
-    D3DXMATRIX getWorldToLPVNormTexRender() { return m_worldToLPVNormTexRender; }
-    D3DXMATRIX getWorldToLPVBB() { return m_worldToLPVBB; }
-    D3DXVECTOR3 getCellSize() { return m_cellSize; }
+    DirectX::XMFLOAT4X4 getWorldToLPVNormTex() { return m_worldToLPVNormTex; }
+    DirectX::XMFLOAT4X4 getWorldToLPVNormTexRender() { return m_worldToLPVNormTexRender; }
+    DirectX::XMFLOAT4X4 getWorldToLPVBB() { return m_worldToLPVBB; }
+    DirectX::XMFLOAT3 getCellSize() { return m_cellSize; }
     float getCellSizeVolume() { return m_cellSize.x * m_cellSize.y * m_cellSize.z; }
 
-    void getLPVLightViewMatrices(D3DXMATRIX ViewMatrix, D3DXMATRIX *viewToLPVMatrix, D3DXMATRIX *inverseViewToLPV)
+    void getLPVLightViewMatrices(DirectX::XMFLOAT4X4 ViewMatrix, DirectX::XMFLOAT4X4 *viewToLPVMatrix, DirectX::XMFLOAT4X4 *inverseViewToLPV)
     {
-        D3DXMATRIX inverseViewMatrix;
+        DirectX::XMFLOAT4X4 inverseViewMatrix;
 
         // matrix to transform from the light view to the LPV space
-        D3DXMatrixInverse(&inverseViewMatrix, NULL, &ViewMatrix);
-        D3DXMatrixMultiply(viewToLPVMatrix, &inverseViewMatrix, &m_worldToLPVNormTex);
-        D3DXMatrixInverse(inverseViewToLPV, NULL, viewToLPVMatrix);
+        DirectX::XMStoreFloat4x4(&inverseViewMatrix, DirectX::XMMatrixInverse(NULL, DirectX::XMLoadFloat4x4(&ViewMatrix)));
+        DirectX::XMStoreFloat4x4(viewToLPVMatrix, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&inverseViewMatrix), DirectX::XMLoadFloat4x4(&m_worldToLPVNormTex)));
+        DirectX::XMStoreFloat4x4(inverseViewToLPV, DirectX::XMMatrixInverse(NULL, DirectX::XMLoadFloat4x4(viewToLPVMatrix)));
     }
 
-    D3DXMATRIX getViewToLPVMatrixGV(D3DXMATRIX ViewMatrix)
+    DirectX::XMFLOAT4X4 getViewToLPVMatrixGV(DirectX::XMFLOAT4X4 ViewMatrix)
     {
-        D3DXMATRIX viewToLPVMatrix, inverseViewMatrix;
+        DirectX::XMFLOAT4X4 viewToLPVMatrix, inverseViewMatrix;
 
         // matrix to transform from the light view to the LPV space
-        D3DXMatrixInverse(&inverseViewMatrix, NULL, &ViewMatrix);
-        D3DXMatrixMultiply(&viewToLPVMatrix, &inverseViewMatrix, &m_worldToLPVNormTex);
+        DirectX::XMStoreFloat4x4(&inverseViewMatrix, DirectX::XMMatrixInverse(NULL, DirectX::XMLoadFloat4x4(&ViewMatrix)));
+        DirectX::XMStoreFloat4x4(&viewToLPVMatrix, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&inverseViewMatrix), DirectX::XMLoadFloat4x4(&m_worldToLPVNormTex)));
 
         // matrix to transform from the light view to the GV space
         // center the grid and then shift the GV half a cell so that GV cell centers line up with LPV cell vertices
-        D3DXMATRIX ViewToLPVMatrixGV;
-        D3DXMatrixMultiply(&ViewToLPVMatrixGV, &viewToLPVMatrix, &m_objTranslate);
+        DirectX::XMFLOAT4X4 ViewToLPVMatrixGV;
+        DirectX::XMStoreFloat4x4(&ViewToLPVMatrixGV, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&viewToLPVMatrix), DirectX::XMLoadFloat4x4(&m_objTranslate)));
         return ViewToLPVMatrixGV;
     }
 
-    void setLPVTransformsRotatedAndOffset(float LPVscale, D3DXVECTOR3 LPVtranslate, D3DXMATRIX cameraViewMatrix, D3DXVECTOR3 viewVector, int width3D, int height3D, int depth3D)
+    void setLPVTransformsRotatedAndOffset(float LPVscale, DirectX::XMFLOAT3 LPVtranslate, DirectX::XMFLOAT4X4 cameraViewMatrix, DirectX::XMFLOAT3 viewVector, int width3D, int height3D, int depth3D)
     {
-        D3DXMATRIX scale;
+        DirectX::XMFLOAT4X4 scale;
 
         /*
         // animating the view vector over time for debugging
         static float angle = 0;
-        viewVector = D3DXVECTOR3(sin(angle),0, -cos(angle));
+        viewVector = DirectX::XMFLOAT3(sin(angle),0, -cos(angle));
         D3DXVec3Normalize(&viewVector,&viewVector);
         angle += 0.0001745; //0.01 degrees
         */
 
-        D3DXMatrixScaling(&scale, LPVscale, LPVscale, LPVscale);
+        DirectX::XMStoreFloat4x4(&scale, DirectX::XMMatrixScaling(LPVscale, LPVscale, LPVscale));
 
         // scale the LPV by the total amount it needs to be scaled
         m_worldToLPVBB = scale;
 
         // construct a translation matrix to translate the LPV along the view vector (so that 80% of the LPV is infront of the camera)
         float offsetScale = 0.8f;
-        D3DXVECTOR3 originalOffset = D3DXVECTOR3(offsetScale * 0.5f * viewVector.x, offsetScale * 0.5f * viewVector.y, offsetScale * 0.5f * viewVector.z);
-        D3DXVECTOR4 transformedOffset;
-        D3DXVec3Transform(&transformedOffset, &originalOffset, &m_worldToLPVBB);
+        DirectX::XMFLOAT3 originalOffset = DirectX::XMFLOAT3(offsetScale * 0.5f * viewVector.x, offsetScale * 0.5f * viewVector.y, offsetScale * 0.5f * viewVector.z);
+        DirectX::XMFLOAT4 transformedOffset;
+        DirectX::XMStoreFloat4(&transformedOffset, DirectX::XMVector3Transform(DirectX::XMLoadFloat3(&originalOffset), DirectX::XMLoadFloat4x4(&m_worldToLPVBB)));
 
         // the total translation is the translation amount for the grid center + the translation amount for shifting the grid along the view vector
         // in addition, we also SNAP the translation to be a multiple of the grid cell size (we only translate in full cell sizes to avoid flickering)
-        m_cellSize = D3DXVECTOR3((float)LPVscale / width3D, (float)LPVscale / height3D, (float)LPVscale / depth3D);
-        D3DXMATRIXA16 modifiedTranslate;
+        m_cellSize = DirectX::XMFLOAT3((float)LPVscale / width3D, (float)LPVscale / height3D, (float)LPVscale / depth3D);
+        DirectX::XMFLOAT4X4 modifiedTranslate;
 
-        D3DXMatrixTranslation(&modifiedTranslate, floorf((LPVtranslate.x + transformedOffset.x) / m_cellSize.x) * m_cellSize.x,
-                              floorf((LPVtranslate.y + transformedOffset.y) / m_cellSize.y) * m_cellSize.y,
-                              floorf((LPVtranslate.z + transformedOffset.z) / m_cellSize.z) * m_cellSize.z);
+        DirectX::XMStoreFloat4x4(&modifiedTranslate, DirectX::XMMatrixTranslation(floorf((LPVtranslate.x + transformedOffset.x) / m_cellSize.x) * m_cellSize.x,
+                                                                                  floorf((LPVtranslate.y + transformedOffset.y) / m_cellSize.y) * m_cellSize.y,
+                                                                                  floorf((LPVtranslate.z + transformedOffset.z) / m_cellSize.z) * m_cellSize.z));
 
         // further transform the LPV by applying the offset calculated and then translating it to the final position
-        m_worldToLPVBB = m_worldToLPVBB * modifiedTranslate;
+        DirectX::XMStoreFloat4x4(&m_worldToLPVBB, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&m_worldToLPVBB), DirectX::XMLoadFloat4x4(&modifiedTranslate)));
 
-        D3DXMATRIXA16 translate;
-        D3DXMatrixInverse(&m_inverseLPVXform, NULL, &m_worldToLPVBB);
-        D3DXMatrixTranslation(&translate, 0.5f, 0.5f, 0.5f);
-        D3DXMatrixMultiply(&m_worldToLPVNormTex, &m_inverseLPVXform, &translate);
+        DirectX::XMFLOAT4X4 translate;
+        DirectX::XMStoreFloat4x4(&m_inverseLPVXform, DirectX::XMMatrixInverse(NULL, DirectX::XMLoadFloat4x4(&m_worldToLPVBB)));
+        DirectX::XMStoreFloat4x4(&translate, DirectX::XMMatrixTranslation(0.5f, 0.5f, 0.5f));
+        DirectX::XMStoreFloat4x4(&m_worldToLPVNormTex, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&m_inverseLPVXform), DirectX::XMLoadFloat4x4(&translate)));
 
         {
-            D3DXMatrixTranslation(&modifiedTranslate, (LPVtranslate.x + transformedOffset.x) - floorf((LPVtranslate.x + transformedOffset.x) / m_cellSize.x) * m_cellSize.x,
-                                  (LPVtranslate.y + transformedOffset.y) - floorf((LPVtranslate.y + transformedOffset.y) / m_cellSize.y) * m_cellSize.y,
-                                  (LPVtranslate.z + transformedOffset.z) - floorf((LPVtranslate.z + transformedOffset.z) / m_cellSize.z) * m_cellSize.z);
+            DirectX::XMStoreFloat4x4(&modifiedTranslate, DirectX::XMMatrixTranslation((LPVtranslate.x + transformedOffset.x) - floorf((LPVtranslate.x + transformedOffset.x) / m_cellSize.x) * m_cellSize.x,
+                                                                                      (LPVtranslate.y + transformedOffset.y) - floorf((LPVtranslate.y + transformedOffset.y) / m_cellSize.y) * m_cellSize.y,
+                                                                                      (LPVtranslate.z + transformedOffset.z) - floorf((LPVtranslate.z + transformedOffset.z) / m_cellSize.z) * m_cellSize.z));
 
             // further transform the LPV by applying the offset calculated and then translating it to the final position
-            D3DXMATRIXA16 worldToLPVBB = m_worldToLPVBB * modifiedTranslate;
-            D3DXMATRIXA16 inverseLPVXform;
-            D3DXMatrixInverse(&inverseLPVXform, NULL, &worldToLPVBB);
-            D3DXMatrixTranslation(&translate, 0.5f, 0.5f, 0.5f);
-            D3DXMatrixMultiply(&m_worldToLPVNormTexRender, &inverseLPVXform, &translate);
+            DirectX::XMFLOAT4X4 worldToLPVBB;
+            DirectX::XMStoreFloat4x4(&worldToLPVBB, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&m_worldToLPVBB), DirectX::XMLoadFloat4x4(&modifiedTranslate)));
+            DirectX::XMFLOAT4X4 inverseLPVXform;
+            DirectX::XMStoreFloat4x4(&inverseLPVXform, DirectX::XMMatrixInverse(NULL, DirectX::XMLoadFloat4x4(&worldToLPVBB)));
+            DirectX::XMStoreFloat4x4(&translate, DirectX::XMMatrixTranslation(0.5f, 0.5f, 0.5f));
+            DirectX::XMStoreFloat4x4(&m_worldToLPVNormTexRender, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&inverseLPVXform), DirectX::XMLoadFloat4x4(&translate)));
         }
 
-        D3DXMatrixTranslation(&m_objTranslate, 0.5f / width3D, 0.5f / height3D, 0.5f / depth3D);
+        DirectX::XMStoreFloat4x4(&m_objTranslate, DirectX::XMMatrixTranslation(0.5f / width3D, 0.5f / height3D, 0.5f / depth3D));
     };
 };
 
@@ -597,13 +605,13 @@ public:
 
         for (int d = 0; d < depth3D; d++)
         {
-            verticesLPV[d * 6] = Tex3PosVertex(D3DXVECTOR3(-1.0f, -1.0f, 0.0f), D3DXVECTOR3(0.0f, 1.0f, (float)d));
-            verticesLPV[d * 6 + 1] = Tex3PosVertex(D3DXVECTOR3(-1.0f, 1.0f, 0.0f), D3DXVECTOR3(0.0f, 0.0f, (float)d));
-            verticesLPV[d * 6 + 2] = Tex3PosVertex(D3DXVECTOR3(1.0f, -1.0f, 0.0f), D3DXVECTOR3(1.0f, 1.0f, (float)d));
+            verticesLPV[d * 6] = Tex3PosVertex(DirectX::XMFLOAT3(-1.0f, -1.0f, 0.0f), DirectX::XMFLOAT3(0.0f, 1.0f, (float)d));
+            verticesLPV[d * 6 + 1] = Tex3PosVertex(DirectX::XMFLOAT3(-1.0f, 1.0f, 0.0f), DirectX::XMFLOAT3(0.0f, 0.0f, (float)d));
+            verticesLPV[d * 6 + 2] = Tex3PosVertex(DirectX::XMFLOAT3(1.0f, -1.0f, 0.0f), DirectX::XMFLOAT3(1.0f, 1.0f, (float)d));
 
-            verticesLPV[d * 6 + 3] = Tex3PosVertex(D3DXVECTOR3(1.0f, -1.0f, 0.0f), D3DXVECTOR3(1.0f, 1.0f, (float)d));
-            verticesLPV[d * 6 + 4] = Tex3PosVertex(D3DXVECTOR3(-1.0f, 1.0f, 0.0f), D3DXVECTOR3(0.0f, 0.0f, (float)d));
-            verticesLPV[d * 6 + 5] = Tex3PosVertex(D3DXVECTOR3(1.0f, 1.0f, 0.0f), D3DXVECTOR3(1.0f, 0.0f, (float)d));
+            verticesLPV[d * 6 + 3] = Tex3PosVertex(DirectX::XMFLOAT3(1.0f, -1.0f, 0.0f), DirectX::XMFLOAT3(1.0f, 1.0f, (float)d));
+            verticesLPV[d * 6 + 4] = Tex3PosVertex(DirectX::XMFLOAT3(-1.0f, 1.0f, 0.0f), DirectX::XMFLOAT3(0.0f, 0.0f, (float)d));
+            verticesLPV[d * 6 + 5] = Tex3PosVertex(DirectX::XMFLOAT3(1.0f, 1.0f, 0.0f), DirectX::XMFLOAT3(1.0f, 0.0f, (float)d));
         }
 
         D3D11_BUFFER_DESC bd;
@@ -732,47 +740,30 @@ public:
     Hierarchy(ID3D11Device *pd3dDevice)
     {
         HRESULT hr;
-        ID3DBlob *pBlob = NULL;
 
         m_pCSDownsampleMax = NULL;
-        V(CompileShaderFromFile(L"Hierarchy.hlsl", "DownsampleMax", "cs_5_0", &pBlob));
-        V(pd3dDevice->CreateComputeShader(pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &m_pCSDownsampleMax));
-        SAFE_RELEASE(pBlob);
+        V(pd3dDevice->CreateComputeShader(Hierarchy_DownsampleMax_bytecode, sizeof(Hierarchy_DownsampleMax_bytecode), NULL, &m_pCSDownsampleMax));
 
         m_pCSDownsampleMin = NULL;
-        V(CompileShaderFromFile(L"Hierarchy.hlsl", "DownsampleMin", "cs_5_0", &pBlob));
-        V(pd3dDevice->CreateComputeShader(pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &m_pCSDownsampleMin));
-        SAFE_RELEASE(pBlob);
+        V(pd3dDevice->CreateComputeShader(Hierarchy_DownsampleMin_bytecode, sizeof(Hierarchy_DownsampleMin_bytecode), NULL, &m_pCSDownsampleMin));
 
         m_pCSDownsampleAverage = NULL;
-        V(CompileShaderFromFile(L"Hierarchy.hlsl", "DownsampleAverage", "cs_5_0", &pBlob));
-        V(pd3dDevice->CreateComputeShader(pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &m_pCSDownsampleAverage));
-        SAFE_RELEASE(pBlob);
+        V(pd3dDevice->CreateComputeShader(Hierarchy_DownsampleAverage_bytecode, sizeof(Hierarchy_DownsampleAverage_bytecode), NULL, &m_pCSDownsampleAverage));
 
         m_pCSDownsampleAverageInplace = NULL;
-        V(CompileShaderFromFile(L"Hierarchy.hlsl", "DownsampleAverageInplace", "cs_5_0", &pBlob));
-        V(pd3dDevice->CreateComputeShader(pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &m_pCSDownsampleAverageInplace));
-        SAFE_RELEASE(pBlob);
+        V(pd3dDevice->CreateComputeShader(Hierarchy_DownsampleAverageInplace_bytecode, sizeof(Hierarchy_DownsampleAverageInplace_bytecode), NULL, &m_pCSDownsampleAverageInplace));
 
         m_pCSUpsample = NULL;
-        V(CompileShaderFromFile(L"Hierarchy.hlsl", "Upsample", "cs_5_0", &pBlob));
-        V(pd3dDevice->CreateComputeShader(pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &m_pCSUpsample));
-        SAFE_RELEASE(pBlob);
+        V(pd3dDevice->CreateComputeShader(Hierarchy_Upsample_bytecode, sizeof(Hierarchy_Upsample_bytecode), NULL, &m_pCSUpsample));
 
         m_pCSUpsampleBilinear = NULL;
-        V(CompileShaderFromFile(L"Hierarchy.hlsl", "UpsampleBilinear", "cs_5_0", &pBlob));
-        V(pd3dDevice->CreateComputeShader(pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &m_pCSUpsampleBilinear));
-        SAFE_RELEASE(pBlob);
+        V(pd3dDevice->CreateComputeShader(Hierarchy_UpsampleBilinear_bytecode, sizeof(Hierarchy_UpsampleBilinear_bytecode), NULL, &m_pCSUpsampleBilinear));
 
         m_pCSUpsampleBilinearAccumulate = NULL;
-        V(CompileShaderFromFile(L"Hierarchy.hlsl", "UpsampleBilinearAccumulate", "cs_5_0", &pBlob));
-        V(pd3dDevice->CreateComputeShader(pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &m_pCSUpsampleBilinearAccumulate));
-        SAFE_RELEASE(pBlob);
+        V(pd3dDevice->CreateComputeShader(Hierarchy_UpsampleBilinearAccumulate_bytecode, sizeof(Hierarchy_UpsampleBilinearAccumulate_bytecode), NULL, &m_pCSUpsampleBilinearAccumulate));
 
         m_pCSUpsampleBilinearAccumulateInplace = NULL;
-        V(CompileShaderFromFile(L"Hierarchy.hlsl", "UpsampleBilinearAccumulateInplace", "cs_5_0", &pBlob));
-        V(pd3dDevice->CreateComputeShader(pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &m_pCSUpsampleBilinearAccumulateInplace));
-        SAFE_RELEASE(pBlob);
+        V(pd3dDevice->CreateComputeShader(Hierarchy_UpsampleBilinearAccumulateInplace_bytecode, sizeof(Hierarchy_UpsampleBilinearAccumulateInplace_bytecode), NULL, &m_pCSUpsampleBilinearAccumulateInplace));
 
         // setup constant buffer
         D3D11_BUFFER_DESC Desc;
@@ -1010,7 +1001,7 @@ public:
         return Create2DArray(levels, pd3dDevice, width, height, depth, format, uav);
     }
 
-    virtual void setLPVTransformsRotatedAndOffset(float LPVscale, D3DXVECTOR3 LPVtranslate, D3DXMATRIX cameraViewMatrix, D3DXVECTOR3 viewVector)
+    virtual void setLPVTransformsRotatedAndOffset(float LPVscale, DirectX::XMFLOAT3 LPVtranslate, DirectX::XMFLOAT4X4 cameraViewMatrix, DirectX::XMFLOAT3 viewVector)
     {
         setLPVTransformsRotatedAndOffset(LPVscale, LPVtranslate, cameraViewMatrix, viewVector);
     }
@@ -1059,7 +1050,7 @@ public:
     int getHeight2D(int level) { return m_collection[level]->getHeight2D(); }
 
     // all the LPVs in the hierarchy have the same transforms, since they are colocated
-    virtual void setLPVTransformsRotatedAndOffset(float LPVscale, D3DXVECTOR3 LPVtranslate, D3DXMATRIX cameraViewMatrix, D3DXVECTOR3 viewVector)
+    virtual void setLPVTransformsRotatedAndOffset(float LPVscale, DirectX::XMFLOAT3 LPVtranslate, DirectX::XMFLOAT4X4 cameraViewMatrix, DirectX::XMFLOAT3 viewVector)
     {
         for (int i = 0; i < m_levels; i++)
             m_collection[i]->setLPVTransformsRotatedAndOffset(LPVscale, LPVtranslate, cameraViewMatrix, viewVector, m_collection[i]->getWidth3D(), m_collection[i]->getHeight3D(), m_collection[i]->getDepth3D());
@@ -1202,7 +1193,7 @@ public:
         m_collection[level]->clearRenderTargetView(pd3dContext, clearColor, front);
     }
 
-    virtual void setLPVTransformsRotatedAndOffset(float LPVscale, D3DXVECTOR3 LPVtranslate, D3DXMATRIX cameraViewMatrix, D3DXVECTOR3 viewVector)
+    virtual void setLPVTransformsRotatedAndOffset(float LPVscale, DirectX::XMFLOAT3 LPVtranslate, DirectX::XMFLOAT4X4 cameraViewMatrix, DirectX::XMFLOAT3 viewVector)
     {
         setLPVTransformsRotatedAndOffset(LPVscale, LPVtranslate, cameraViewMatrix, viewVector);
     }
@@ -1240,9 +1231,9 @@ class Cascade
 {
 public:
     float m_cascadeScale;
-    D3DXVECTOR3 m_cascadeTranslate;
+    DirectX::XMFLOAT3 m_cascadeTranslate;
 
-    Cascade(float cascadeScale, D3DXVECTOR3 cascadeTranslate)
+    Cascade(float cascadeScale, DirectX::XMFLOAT3 cascadeTranslate)
     {
         m_cascadeScale = cascadeScale;
         m_cascadeTranslate = cascadeTranslate;
@@ -1250,11 +1241,16 @@ public:
 
     float getCascadeScale(int level) { return level == 0 ? 1 : level * m_cascadeScale; }
 
-    D3DXVECTOR3 getCascadeTranslate(int level) { return m_cascadeTranslate * (float)level; }
+    DirectX::XMFLOAT3 getCascadeTranslate(int level)
+    {
+        DirectX::XMFLOAT3 levelCascadeTranslate;
+        DirectX::XMStoreFloat3(&levelCascadeTranslate, DirectX::XMVectorScale(DirectX::XMLoadFloat3(&m_cascadeTranslate), static_cast<float>(level)));
+        return levelCascadeTranslate;
+    }
 
     void setCascadeScale(float scale) { m_cascadeScale = scale; }
 
-    void setCascadeTranslate(D3DXVECTOR3 translate) { m_cascadeTranslate = translate; }
+    void setCascadeTranslate(DirectX::XMFLOAT3 translate) { m_cascadeTranslate = translate; }
 
     ~Cascade(){};
 };
@@ -1263,7 +1259,7 @@ class LPV_RGB_Cascade : public RTCollection_RGB, public Cascade
 {
 
 public:
-    LPV_RGB_Cascade(ID3D11Device *pd3dDevice, float cascadeScale, D3DXVECTOR3 cascadeTranslate) : RTCollection_RGB(), Cascade(cascadeScale, cascadeTranslate){};
+    LPV_RGB_Cascade(ID3D11Device *pd3dDevice, float cascadeScale, DirectX::XMFLOAT3 cascadeTranslate) : RTCollection_RGB(), Cascade(cascadeScale, cascadeTranslate){};
     virtual ~LPV_RGB_Cascade(){};
 
     virtual HRESULT Create(int &levels, ID3D11Device *pd3dDevice, int width2D, int height2D, int width3D, int height3D, int depth3D, DXGI_FORMAT format, bool uav, bool doublebuffer, bool use3DTex, bool use2DTexArray, int numRTs)
@@ -1284,17 +1280,23 @@ public:
         return hr;
     }
 
-    virtual void setLPVTransformsRotatedAndOffset(float LPVscale, D3DXVECTOR3 LPVtranslate, D3DXMATRIX cameraViewMatrix, D3DXVECTOR3 viewVector)
+    virtual void setLPVTransformsRotatedAndOffset(float LPVscale, DirectX::XMFLOAT3 LPVtranslate, DirectX::XMFLOAT4X4 cameraViewMatrix, DirectX::XMFLOAT3 viewVector)
     {
         for (int level = 0; level < m_levels; level++)
-            m_collection[level]->setLPVTransformsRotatedAndOffset(LPVscale * getCascadeScale(level), LPVtranslate + getCascadeTranslate(level), cameraViewMatrix, viewVector, m_collection[level]->getWidth3D(), m_collection[level]->getHeight3D(), m_collection[level]->getDepth3D());
+        {
+            DirectX::XMFLOAT3 LPVlevelCascadeTranslate;
+            DirectX::XMFLOAT3 levelCascadeTranslate = getCascadeTranslate(level);
+            DirectX::XMStoreFloat3(&LPVlevelCascadeTranslate, DirectX::XMVectorAdd(DirectX::XMLoadFloat3(&LPVtranslate), DirectX::XMLoadFloat3(&levelCascadeTranslate)));
+
+            m_collection[level]->setLPVTransformsRotatedAndOffset(LPVscale * getCascadeScale(level), LPVlevelCascadeTranslate, cameraViewMatrix, viewVector, m_collection[level]->getWidth3D(), m_collection[level]->getHeight3D(), m_collection[level]->getDepth3D());
+        }
     }
 };
 
 class LPV_Cascade : public RTCollection, public Cascade
 {
 public:
-    LPV_Cascade(ID3D11Device *pd3dDevice, float cascadeScale, D3DXVECTOR3 cascadeTranslate) : RTCollection(), Cascade(cascadeScale, cascadeTranslate){};
+    LPV_Cascade(ID3D11Device *pd3dDevice, float cascadeScale, DirectX::XMFLOAT3 cascadeTranslate) : RTCollection(), Cascade(cascadeScale, cascadeTranslate){};
     virtual ~LPV_Cascade(){};
 
     virtual HRESULT Create2D(int &levels, ID3D11Device *pd3dDevice, int width2D, int height2D, int width3D, int height3D, int depth3D, DXGI_FORMAT format, bool uav = false)
@@ -1345,10 +1347,16 @@ public:
         return hr;
     }
 
-    virtual void setLPVTransformsRotatedAndOffset(float LPVscale, D3DXVECTOR3 LPVtranslate, D3DXMATRIX cameraViewMatrix, D3DXVECTOR3 viewVector)
+    virtual void setLPVTransformsRotatedAndOffset(float LPVscale, DirectX::XMFLOAT3 LPVtranslate, DirectX::XMFLOAT4X4 cameraViewMatrix, DirectX::XMFLOAT3 viewVector)
     {
         for (int level = 0; level < m_levels; level++)
-            m_collection[level]->setLPVTransformsRotatedAndOffset(LPVscale * getCascadeScale(level), LPVtranslate + getCascadeTranslate(level), cameraViewMatrix, viewVector, m_collection[level]->getWidth3D(), m_collection[level]->getHeight3D(), m_collection[level]->getDepth3D());
+        {
+            DirectX::XMFLOAT3 LPVlevelCascadeTranslate;
+            DirectX::XMFLOAT3 levelCascadeTranslate = getCascadeTranslate(level);
+            DirectX::XMStoreFloat3(&LPVlevelCascadeTranslate, DirectX::XMVectorAdd(DirectX::XMLoadFloat3(&LPVtranslate), DirectX::XMLoadFloat3(&levelCascadeTranslate)));
+
+            m_collection[level]->setLPVTransformsRotatedAndOffset(LPVscale * getCascadeScale(level), LPVlevelCascadeTranslate, cameraViewMatrix, viewVector, m_collection[level]->getWidth3D(), m_collection[level]->getHeight3D(), m_collection[level]->getDepth3D());
+        }
     }
 };
 
@@ -1357,7 +1365,7 @@ class LPV_RGB_Hierarchy : public Hierarchy, public RTCollection_RGB
 private:
 public:
     // all the LPVs in the hierarchy have the same transforms, since they are colocated
-    virtual void setLPVTransformsRotatedAndOffset(float LPVscale, D3DXVECTOR3 LPVtranslate, D3DXMATRIX cameraViewMatrix, D3DXVECTOR3 viewVector)
+    virtual void setLPVTransformsRotatedAndOffset(float LPVscale, DirectX::XMFLOAT3 LPVtranslate, DirectX::XMFLOAT4X4 cameraViewMatrix, DirectX::XMFLOAT3 viewVector)
     {
         for (int level = 0; level < m_levels; level++)
             m_collection[level]->setLPVTransformsRotatedAndOffset(LPVscale, LPVtranslate, cameraViewMatrix, viewVector, m_collection[level]->getWidth3D(), m_collection[level]->getHeight3D(), m_collection[level]->getDepth3D());

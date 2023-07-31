@@ -12,7 +12,6 @@
 //
 // Please direct any bugs or questions to SDKFeedback@nvidia.com
 
-#pragma warning(disable : 4995)
 #include "Lighting.h"
 
 void invokeHierarchyBasedPropagation(ID3D11DeviceContext *pd3dContext, bool useSingleLPV, int numHierarchyLevels, int numPropagationStepsLPV, int PropLevel,
@@ -90,7 +89,7 @@ void invokeHierarchyBasedPropagation(ID3D11DeviceContext *pd3dContext, bool useS
 
 // initialize the GV ( geometry volume) with the RSM data
 void initializeGV(ID3D11DeviceContext *pd3dContext, SimpleRT *GV, SimpleRT *GVColor, SimpleRT *RSMAlbedoRT, SimpleRT *RSMNormalRT, DepthRT *shadowMapDS,
-                  float fovy, float aspectRatio, float nearPlane, float farPlane, bool useDirectional, const D3DXMATRIX *projectionMatrix, D3DXMATRIX viewMatrix)
+                  float fovy, float aspectRatio, float nearPlane, float farPlane, bool useDirectional, const DirectX::XMFLOAT4X4 *projectionMatrix, DirectX::XMFLOAT4X4 viewMatrix)
 {
     HRESULT hr;
 
@@ -102,7 +101,7 @@ void initializeGV(ID3D11DeviceContext *pd3dContext, SimpleRT *GV, SimpleRT *GVCo
     ID3D11RenderTargetView *GVRTV = GV->get_pRTV(0);
     ID3D11RenderTargetView *GVColorRTV = GVColor->get_pRTV(0);
 
-    D3DXMATRIX viewToLPVMatrix;
+    DirectX::XMFLOAT4X4 viewToLPVMatrix;
     viewToLPVMatrix = GV->getViewToLPVMatrixGV(viewMatrix);
 
     // set the constant buffer
@@ -117,11 +116,11 @@ void initializeGV(ID3D11DeviceContext *pd3dContext, SimpleRT *GV, SimpleRT *GVCo
     pd3dContext->VSSetConstantBuffers(6, 1, &g_reconPos);
     pd3dContext->PSSetConstantBuffers(6, 1, &g_reconPos);
 
-    D3DXMATRIX mProjInv;
-    D3DXMatrixInverse(&mProjInv, NULL, projectionMatrix);
+    DirectX::XMFLOAT4X4 mProjInv;
+    DirectX::XMStoreFloat4x4(&mProjInv, DirectX::XMMatrixInverse(NULL, DirectX::XMLoadFloat4x4(projectionMatrix)));
     V(pd3dContext->Map(g_pcbInvProjMatrix, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource));
     CB_INVPROJ_MATRIX *pInvProjMat = (CB_INVPROJ_MATRIX *)MappedResource.pData;
-    D3DXMatrixTranspose(&pInvProjMat->m_InverseProjMatrix, &mProjInv);
+    DirectX::XMStoreFloat4x4(&pInvProjMat->m_InverseProjMatrix, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&mProjInv)));
     pd3dContext->Unmap(g_pcbInvProjMatrix, 0);
     pd3dContext->VSSetConstantBuffers(7, 1, &g_pcbInvProjMatrix);
 
@@ -177,10 +176,9 @@ void initializeGV(ID3D11DeviceContext *pd3dContext, SimpleRT *GV, SimpleRT *GVCo
 
     pd3dContext->Map(g_pcbLPVinitVS2, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
     CB_LPV_INITIALIZE2 *pcbLPVinitVS2 = (CB_LPV_INITIALIZE2 *)MappedResource.pData;
-    D3DXMatrixTranspose(&pcbLPVinitVS2->g_ViewToLPV, &viewToLPVMatrix);
-
-    D3DXVec3TransformNormal(&pcbLPVinitVS2->lightDirGridSpace, &D3DXVECTOR3(0, 0, 1), &viewToLPVMatrix);
-    D3DXVec3Normalize(&pcbLPVinitVS2->lightDirGridSpace, &pcbLPVinitVS2->lightDirGridSpace);
+    DirectX::XMStoreFloat4x4(&pcbLPVinitVS2->g_ViewToLPV, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&viewToLPVMatrix)));
+    DirectX::XMFLOAT3 temp(0, 0, 1);
+    DirectX::XMStoreFloat3(&pcbLPVinitVS2->lightDirGridSpace, DirectX::XMVector3Normalize(DirectX::XMVector3Transform(DirectX::XMLoadFloat3(&temp), DirectX::XMLoadFloat4x4(&viewToLPVMatrix))));
 
     pcbLPVinitVS2->displacement = g_VPLDisplacement;
     pd3dContext->Unmap(g_pcbLPVinitVS2, 0);
@@ -210,7 +208,7 @@ void initializeGV(ID3D11DeviceContext *pd3dContext, SimpleRT *GV, SimpleRT *GVCo
 }
 
 void initializeLPV(ID3D11DeviceContext *pd3dContext, SimpleRT_RGB *LPVAccumulate, SimpleRT_RGB *LPVPropagate,
-                   D3DXMATRIX viewMatrix, D3DXMATRIX mProjectionMatrix, SimpleRT *RSMColorRT, SimpleRT *RSMNormalRT, DepthRT *shadowMapDS,
+                   DirectX::XMFLOAT4X4 viewMatrix, DirectX::XMFLOAT4X4 mProjectionMatrix, SimpleRT *RSMColorRT, SimpleRT *RSMNormalRT, DepthRT *shadowMapDS,
                    float fovy, float aspectRatio, float nearPlane, float farPlane, bool useDirectional)
 {
     HRESULT hr;
@@ -221,7 +219,7 @@ void initializeLPV(ID3D11DeviceContext *pd3dContext, SimpleRT_RGB *LPVAccumulate
 
     ID3D11RenderTargetView *pRTVsNULL3[3] = {NULL, NULL, NULL};
 
-    D3DXMATRIX inverseViewToLPVMatrix, viewToLPVMatrix;
+    DirectX::XMFLOAT4X4 inverseViewToLPVMatrix, viewToLPVMatrix;
     LPVPropagate->getLPVLightViewMatrices(viewMatrix, &viewToLPVMatrix, &inverseViewToLPVMatrix);
 
     // set the constant buffer
@@ -236,11 +234,11 @@ void initializeLPV(ID3D11DeviceContext *pd3dContext, SimpleRT_RGB *LPVAccumulate
     pd3dContext->VSSetConstantBuffers(6, 1, &g_reconPos);
     pd3dContext->PSSetConstantBuffers(6, 1, &g_reconPos);
 
-    D3DXMATRIX mProjInv;
-    D3DXMatrixInverse(&mProjInv, NULL, &mProjectionMatrix);
+    DirectX::XMFLOAT4X4 mProjInv;
+    DirectX::XMStoreFloat4x4(&mProjInv, DirectX::XMMatrixInverse(NULL, DirectX::XMLoadFloat4x4(&mProjectionMatrix)));
     V(pd3dContext->Map(g_pcbInvProjMatrix, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource));
     CB_INVPROJ_MATRIX *pInvProjMat = (CB_INVPROJ_MATRIX *)MappedResource.pData;
-    D3DXMatrixTranspose(&pInvProjMat->m_InverseProjMatrix, &mProjInv);
+    DirectX::XMStoreFloat4x4(&pInvProjMat->m_InverseProjMatrix, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&mProjInv)));
     pd3dContext->Unmap(g_pcbInvProjMatrix, 0);
     pd3dContext->VSSetConstantBuffers(7, 1, &g_pcbInvProjMatrix);
 
@@ -305,11 +303,11 @@ void initializeLPV(ID3D11DeviceContext *pd3dContext, SimpleRT_RGB *LPVAccumulate
 
     pd3dContext->Map(g_pcbLPVinitVS2, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
     pcbLPVinitVS2 = (CB_LPV_INITIALIZE2 *)MappedResource.pData;
-    D3DXMatrixTranspose(&pcbLPVinitVS2->g_ViewToLPV, &viewToLPVMatrix);
-    D3DXMatrixTranspose(&pcbLPVinitVS2->g_LPVtoView, &inverseViewToLPVMatrix);
+    DirectX::XMStoreFloat4x4(&pcbLPVinitVS2->g_ViewToLPV, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&viewToLPVMatrix)));
+    DirectX::XMStoreFloat4x4(&pcbLPVinitVS2->g_LPVtoView, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&inverseViewToLPVMatrix)));
 
-    D3DXVec3TransformNormal(&pcbLPVinitVS2->lightDirGridSpace, &D3DXVECTOR3(0, 0, 1), &viewToLPVMatrix);
-    D3DXVec3Normalize(&pcbLPVinitVS2->lightDirGridSpace, &pcbLPVinitVS2->lightDirGridSpace);
+    DirectX::XMFLOAT3 temp(0, 0, 1);
+    DirectX::XMStoreFloat3(&pcbLPVinitVS2->lightDirGridSpace, DirectX::XMVector3Normalize(DirectX::XMVector3Transform(DirectX::XMLoadFloat3(&temp), DirectX::XMLoadFloat4x4(&viewToLPVMatrix))));
 
     pcbLPVinitVS2->displacement = g_VPLDisplacement;
     pd3dContext->Unmap(g_pcbLPVinitVS2, 0);
@@ -336,7 +334,7 @@ void initializeLPV(ID3D11DeviceContext *pd3dContext, SimpleRT_RGB *LPVAccumulate
 }
 
 void renderRSM(ID3D11DeviceContext *pd3dContext, bool depthPeel, SimpleRT *pRSMColorRT, SimpleRT *pRSMAlbedoRT, SimpleRT *pRSMNormalRT, DepthRT *pShadowMapDS, DepthRT *pShadowTex,
-               const D3DXMATRIX *projectionMatrix, const D3DXMATRIX *viewMatrix, int numMeshes, RenderMesh **meshes, D3D11_VIEWPORT shadowViewport, D3DXVECTOR3 lightPos, const float lightRadius, float depthBiasFromGUI, bool bUseSM)
+               const DirectX::XMFLOAT4X4 *projectionMatrix, const DirectX::XMFLOAT4X4 *viewMatrix, int numMeshes, RenderMesh **meshes, D3D11_VIEWPORT shadowViewport, DirectX::XMFLOAT3 lightPos, const float lightRadius, float depthBiasFromGUI, bool bUseSM)
 {
 
     float BlendFactor[4] = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -366,8 +364,8 @@ void renderRSM(ID3D11DeviceContext *pd3dContext, bool depthPeel, SimpleRT *pRSMC
     pd3dContext->OMSetRenderTargets(3, pRTVs, *pShadowMapDS);
     pd3dContext->RSSetViewports(1, &shadowViewport);
 
-    D3DXMATRIX inverseProjectionMatrix;
-    D3DXMatrixInverse(&inverseProjectionMatrix, NULL, projectionMatrix);
+    DirectX::XMFLOAT4X4 inverseProjectionMatrix;
+    DirectX::XMStoreFloat4x4(&inverseProjectionMatrix, DirectX::XMMatrixInverse(NULL, DirectX::XMLoadFloat4x4(projectionMatrix)));
 
     if (depthPeel)
     {
@@ -392,7 +390,7 @@ void renderRSM(ID3D11DeviceContext *pd3dContext, bool depthPeel, SimpleRT *pRSMC
         RenderMesh *mesh = meshes[i];
 
         // set the light matrices
-        D3DXMATRIX WVMatrix, WVMatrixIT, WVPMatrix, ViewProjClip2Tex;
+        DirectX::XMFLOAT4X4 WVMatrix, WVMatrixIT, WVPMatrix, ViewProjClip2Tex;
         mesh->createMatrices(*projectionMatrix, *viewMatrix, &WVMatrix, &WVMatrixIT, &WVPMatrix, &ViewProjClip2Tex);
         UpdateSceneCB(pd3dContext, lightPos, lightRadius, depthBiasFromGUI, bUseSM, &(WVPMatrix), &(WVMatrixIT), &(mesh->m_WMatrix), &(ViewProjClip2Tex));
 
@@ -406,9 +404,9 @@ void renderRSM(ID3D11DeviceContext *pd3dContext, bool depthPeel, SimpleRT *pRSMC
         pd3dContext->PSSetConstantBuffers(6, 1, &g_pcbMeshRenderOptions);
 
         if (g_subsetToRender == -1)
-            mesh->m_Mesh.RenderBounded(pd3dContext, D3DXVECTOR3(0, 0, 0), D3DXVECTOR3(100000, 100000, 100000), 0);
+            mesh->m_Mesh.RenderBounded(pd3dContext, DirectX::XMFLOAT3(0, 0, 0), DirectX::XMFLOAT3(100000, 100000, 100000), 0);
         else
-            mesh->m_Mesh.RenderSubsetBounded(0, g_subsetToRender, pd3dContext, D3DXVECTOR3(0, 0, 0), D3DXVECTOR3(10000, 10000, 10000), false, 0);
+            mesh->m_Mesh.RenderSubsetBounded(0, g_subsetToRender, pd3dContext, DirectX::XMFLOAT3(0, 0, 0), DirectX::XMFLOAT3(10000, 10000, 10000), false, 0);
     }
 
     ID3D11RenderTargetView *pRTVsNULL3[3] = {NULL, NULL, NULL};

@@ -48,11 +48,11 @@ cbuffer cbConstantsHierarchy : register(b0)
 float4 loadOffsetTexValue(Texture2DArray tex,
                           int Width3D, int Height3D, int Depth3D, int numCols, int numRows, uint3 pos)
 {
-    if (pos.x >= Width3D || pos.x < 1)
+    if (int(pos.x) >= Width3D || int(pos.x) < 1)
         return float4(0, 0, 0, 0);
-    if (pos.y >= Height3D || pos.y < 1)
+    if (int(pos.y) >= Height3D || int(pos.y) < 1)
         return float4(0, 0, 0, 0);
-    if (pos.z >= Depth3D || pos.z < 1)
+    if (int(pos.z) >= Depth3D || int(pos.z) < 1)
         return float4(0, 0, 0, 0);
 
     return tex.Load(int4(pos.x, pos.y, pos.z, 0));
