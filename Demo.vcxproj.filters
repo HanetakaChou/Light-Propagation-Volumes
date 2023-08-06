@@ -22,6 +22,15 @@
     <Filter Include="DXUT\Media\UI">
       <UniqueIdentifier>{5da47bc5-b8f6-4e02-8daf-b502fb7662b3}</UniqueIdentifier>
     </Filter>
+    <Filter Include="thirdparty">
+      <UniqueIdentifier>{acaf1c81-3083-47f2-9bf9-8221b5fd4bbd}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="thirdparty\pbrt">
+      <UniqueIdentifier>{9bb73d9a-8367-4628-b02d-e916bfc3b76b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="thirdparty\pbrt\core">
+      <UniqueIdentifier>{5673f7eb-89cf-45b0-8b5f-53f0d05149ed}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="code\CoreLPVandRSM.cpp">
@@ -75,6 +84,9 @@
     <ClCompile Include="DXUT\Optional\DXUTsettingsdlg.cpp">
       <Filter>DXUT\Optional</Filter>
     </ClCompile>
+    <ClCompile Include="thirdparty\pbrt\core\spectrum.cpp">
+      <Filter>thirdparty\pbrt\core</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="code\grid.h">
@@ -127,6 +139,9 @@
     </ClInclude>
     <ClInclude Include="shaders\Defines.h">
       <Filter>shaders</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\pbrt\core\spectrum.h">
+      <Filter>thirdparty\pbrt\core</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

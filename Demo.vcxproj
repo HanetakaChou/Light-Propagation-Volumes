@@ -200,6 +200,7 @@
     <ClCompile Include="DXUT\Optional\DXUTsettingsdlg.cpp" />
     <ClCompile Include="DXUT\Optional\SDKmesh.cpp" />
     <ClCompile Include="DXUT\Optional\SDKmisc.cpp" />
+    <ClCompile Include="thirdparty\pbrt\core\spectrum.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="code\grid.h" />
@@ -219,6 +220,7 @@
     <ClInclude Include="DXUT\Optional\SDKmesh.h" />
     <ClInclude Include="DXUT\Optional\SDKmisc.h" />
     <ClInclude Include="shaders\Defines.h" />
+    <ClInclude Include="thirdparty\pbrt\core\spectrum.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="shaders\LPV_GS_initializeLPV.hlsl">
