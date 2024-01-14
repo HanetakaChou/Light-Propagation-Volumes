@@ -461,7 +461,6 @@ void createPropagationAndGeometryVolumes(ID3D11Device *pd3dDevice);
 
 // propagation code
 void propagateLPV(ID3D11DeviceContext *pd3dContext, int iteration, SimpleRT_RGB *LPVPropagate, SimpleRT_RGB *LPVAccumulate, SimpleRT *GV, SimpleRT *GVColor);
-void invokeCascadeBasedPropagation(ID3D11DeviceContext *pd3dContext, bool useSingleLPV, int propLevel, LPV_RGB_Cascade *LPVAccumulate, LPV_RGB_Cascade *LPVPropagate, LPV_Cascade *GV, LPV_Cascade *GVColor, int num_iterations);
 void propagateLightHierarchy(ID3D11DeviceContext *pd3dContext, LPV_RGB_Hierarchy *LPVAccumulate, LPV_RGB_Hierarchy *LPVPropagate, LPV_Hierarchy *GV, LPV_Hierarchy *GVColor, int level, PropSpecs propAmounts[MAX_LEVELS], int numLevels);
 void invokeHierarchyBasedPropagation(ID3D11DeviceContext *pd3dContext, bool useHierarchy, int numHierarchyLevels, int numPropagationStepsLPV, int PropLevel,
                                      LPV_Hierarchy *GV, LPV_Hierarchy *GVColor, LPV_RGB_Hierarchy *LPVAccumulate, LPV_RGB_Hierarchy *LPVPropagate);

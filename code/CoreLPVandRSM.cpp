@@ -416,31 +416,6 @@ void renderRSM(ID3D11DeviceContext *pd3dContext, bool depthPeel, SimpleRT *pRSMC
     pd3dContext->PSSetShaderResources(6, 1, ppSRVNULL);
 }
 
-void invokeCascadeBasedPropagation(ID3D11DeviceContext *pd3dContext, bool useSingleLPV, int propLevel, LPV_RGB_Cascade *LPVAccumulate, LPV_RGB_Cascade *LPVPropagate, LPV_Cascade *GV, LPV_Cascade *GVColor, int num_iterations)
-{
-    if (g_usePSPropagation)
-    {
-        pd3dContext->PSSetConstantBuffers(2, 1, &g_pcbLPVpropagateGather);
-        pd3dContext->PSSetConstantBuffers(6, 1, &g_pcbLPVpropagateGather2);
-    }
-    else
-    {
-        pd3dContext->CSSetConstantBuffers(2, 1, &g_pcbLPVpropagateGather);
-        pd3dContext->CSSetConstantBuffers(6, 1, &g_pcbLPVpropagateGather2);
-    }
-
-    if (useSingleLPV)
-    {
-        for (int iteration = 0; iteration < num_iterations; iteration++)
-            propagateLPV(pd3dContext, iteration, LPVPropagate->m_collection[propLevel], LPVAccumulate->m_collection[propLevel], GV->m_collection[propLevel], GVColor->m_collection[propLevel]);
-        return;
-    }
-
-    for (int level = 0; level < LPVPropagate->getNumLevels(); level++)
-        for (int iteration = 0; iteration < num_iterations; iteration++)
-            propagateLPV(pd3dContext, iteration, LPVPropagate->m_collection[level], LPVAccumulate->m_collection[level], GV->m_collection[level], GVColor->m_collection[level]);
-}
-
 void propagateLightHierarchy(ID3D11DeviceContext *pd3dContext, LPV_RGB_Hierarchy *LPVAccumulate, LPV_RGB_Hierarchy *LPVPropagate, LPV_Hierarchy *GV, LPV_Hierarchy *GVColor, int level, PropSpecs propAmounts[MAX_LEVELS], int numLevels)
 {
     // set shader constants
@@ -589,7 +564,15 @@ void propagateLPV_PixelShaderPath(ID3D11DeviceContext *pd3dContext, int iteratio
 void propagateLPV(ID3D11DeviceContext *pd3dContext, int iteration, SimpleRT_RGB *LPVPropagate, SimpleRT_RGB *LPVAccumulate, SimpleRT *GV, SimpleRT *GVColor)
 {
     if (g_usePSPropagation)
+    {
+        pd3dContext->PSSetConstantBuffers(2, 1, &g_pcbLPVpropagateGather);
+        pd3dContext->PSSetConstantBuffers(6, 1, &g_pcbLPVpropagateGather2);
+
         return propagateLPV_PixelShaderPath(pd3dContext, iteration, LPVPropagate, LPVAccumulate, GV, GVColor);
+    }
+
+    pd3dContext->CSSetConstantBuffers(2, 1, &g_pcbLPVpropagateGather);
+    pd3dContext->CSSetConstantBuffers(6, 1, &g_pcbLPVpropagateGather2);
 
     bool bAccumulateSeparately = false;
     if (LPVAccumulate->getRedFront()->getNumChannels() == 1 && LPVAccumulate->getRedFront()->getNumRTs() == 4)

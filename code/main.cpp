@@ -58,8 +58,9 @@ CModelViewerCamera g_LightCamera;                   // A way to manipulate the l
 CD3DSettingsDlg g_D3DSettingsDlg;                   // Device settings dialog
 CDXUTDialog g_HUD;                                  // dialog for standard controls
 
-ID3D11Device *g_pd3dDevice;
+ID3D11Device *g_pd3dDevice = NULL;
 CDXUTTextHelper *g_pTxtHelper = NULL;
+ID3DUserDefinedAnnotation *g_d3d_user_define_annotation = NULL;
 
 unsigned int g_WindowWidth = 1024;
 unsigned int g_WindowHeight = 768;
@@ -137,7 +138,6 @@ float g_directLightStrength;
 Grid *g_grid;
 DirectX::XMFLOAT3 g_objectTranslate = DirectX::XMFLOAT3(0, 0, 0);
 bool g_showMovableMesh;
-bool g_useRSMForLight = true;
 bool g_useFinestGrid = true;
 bool g_usePSPropagation = false;
 
@@ -159,11 +159,10 @@ enum MOVABLE_MESH_TYPE
     TYPE_SPHERE = 1,
 };
 MOVABLE_MESH_TYPE movableMeshType = TYPE_SPHERE;
-WCHAR CONST *g_tstr_movableMeshType[] =
-    {
-        L"Wall",
-        L"Sphere",
-        NULL};
+WCHAR CONST *g_tstr_movableMeshType[] = {
+    L"Wall",
+    L"Sphere",
+    NULL};
 
 // LPVs used in the Hierarchical path
 RTCollection_RGB *LPV0Propagate;
@@ -171,11 +170,13 @@ RTCollection_RGB *LPV0Accumulate;
 RTCollection *GV0;      // the geometry volume encoding all the occluders
 RTCollection *GV0Color; // the color of the occluders in GV0
 
+static constexpr int const SM_PROJ_MATS_SIZE = 2;
+
 // Reflective shadow maps
-SimpleRT *g_pRSMColorRT;
-SimpleRT *g_pRSMAlbedoRT;
-SimpleRT *g_pRSMNormalRT;
-DepthRT *g_pShadowMapDS;
+SimpleRT *g_pRSMColorRT[SM_PROJ_MATS_SIZE];
+SimpleRT *g_pRSMAlbedoRT[SM_PROJ_MATS_SIZE];
+SimpleRT *g_pRSMNormalRT[SM_PROJ_MATS_SIZE];
+DepthRT *g_pShadowMapDS[SM_PROJ_MATS_SIZE];
 DepthRT *g_pDepthPeelingDS[2];
 
 DepthRT *g_pSceneShadowMap;
@@ -190,7 +191,6 @@ ID3D11DepthStencilState *g_depthStencilStateDisableDepth;
 
 DirectX::XMFLOAT4X4 g_pSceneShadowMapProj;
 DirectX::XMFLOAT4X4 g_pShadowMapProjMatrixSingle;
-#define SM_PROJ_MATS_SIZE 2
 DirectX::XMFLOAT4X4 g_pRSMProjMatrices[SM_PROJ_MATS_SIZE];
 
 // viewports
@@ -600,14 +600,6 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
 
     updateLight((1.0f / DXUTGetFPS()));
 
-    ID3D11RenderTargetView *pRTV = DXUTGetD3D11RenderTargetView();
-    ID3D11DepthStencilView *pDSV = DXUTGetD3D11DepthStencilView();
-
-    float ClearColorRTV[4] = {0.3f, 0.3f, 0.3f, 1.0f};
-    pd3dContext->ClearRenderTargetView(pRTV, ClearColorRTV);
-    float ClearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-    float ClearColor2[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-
     DirectX::XMFLOAT4X4 cameraViewMatrix;
     DirectX::XMStoreFloat4x4(&cameraViewMatrix, g_Camera.GetViewMatrix());
 
@@ -715,55 +707,33 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
     pd3dContext->IASetIndexBuffer(g_MainMesh->m_Mesh.GetIB11(0), g_MainMesh->m_Mesh.GetIBFormat11(0), 0);
     pd3dContext->IASetInputLayout(g_pMeshLayout);
 
-    // clear the LPVs
-    float ClearColorLPV[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-
-    if (g_propType == HIERARCHY)
-    {
-        LPV0Propagate->clearRenderTargetView(pd3dContext, ClearColorLPV, true, g_LPVLevelToInitialize);
-        LPV0Propagate->clearRenderTargetView(pd3dContext, ClearColorLPV, false, g_LPVLevelToInitialize);
-        LPV0Accumulate->clearRenderTargetView(pd3dContext, ClearColorLPV, true, g_LPVLevelToInitialize);
-        LPV0Accumulate->clearRenderTargetView(pd3dContext, ClearColorLPV, false, g_LPVLevelToInitialize);
-    }
-    else if (g_propType == CASCADE)
-    {
-        if (g_bUseSingleLPV)
-        {
-            LPV0Propagate->clearRenderTargetView(pd3dContext, ClearColorLPV, true, g_LPVLevelToInitialize);
-            LPV0Propagate->clearRenderTargetView(pd3dContext, ClearColorLPV, false, g_LPVLevelToInitialize);
-            LPV0Accumulate->clearRenderTargetView(pd3dContext, ClearColorLPV, true, g_LPVLevelToInitialize);
-            LPV0Accumulate->clearRenderTargetView(pd3dContext, ClearColorLPV, false, g_LPVLevelToInitialize);
-        }
-        else
-            for (int level = 0; level < LPV0Propagate->getNumLevels(); level++)
-            {
-                LPV0Propagate->clearRenderTargetView(pd3dContext, ClearColorLPV, true, level);
-                LPV0Propagate->clearRenderTargetView(pd3dContext, ClearColorLPV, false, level);
-                LPV0Accumulate->clearRenderTargetView(pd3dContext, ClearColorLPV, true, level);
-                LPV0Accumulate->clearRenderTargetView(pd3dContext, ClearColorLPV, false, level);
-            }
-    }
-
     // render the scene to the shadow map/ RSM and initialize the LPV and GV-----------------
 
-    int numMeshes = 2;
-    RenderMesh **meshes = new RenderMesh *[2];
-    int m = 0;
+    RenderMesh *meshes[2];
+
+    int numMeshes = 0;
+
     if (g_renderMesh)
-        meshes[m++] = g_MainMesh;
+    {
+        meshes[numMeshes] = g_MainMesh;
+        ++numMeshes;
+    }
+
     if (g_showMovableMesh)
     {
         if (movableMeshType == TYPE_BOX)
-            meshes[m++] = g_MovableBoxMesh;
+        {
+            meshes[numMeshes] = g_MovableBoxMesh;
+            ++numMeshes;
+        }
         else if (movableMeshType == TYPE_SPHERE)
-            meshes[m++] = g_MainMovableMesh;
+        {
+            meshes[numMeshes] = g_MainMovableMesh;
+            ++numMeshes;
+        }
     }
-    numMeshes = m;
 
     float BlendFactor[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-
-    if (g_renderMesh)
-        meshes[0] = g_MainMesh;
 
     DirectX::XMFLOAT3 lightPos;
     DirectX::XMStoreFloat3(&lightPos, g_LightCamera.GetEyePt());
@@ -775,105 +745,215 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
     DirectX::XMStoreFloat3(&eyeAt, g_Camera.GetLookAtPt());
 
     // render the shadow map for the scene.
-    renderShadowMap(pd3dContext, g_pSceneShadowMap, &g_pSceneShadowMapProj, &mShadowMatrix, numMeshes, meshes,
-                    g_shadowViewportScene, lightPos, g_lightRadius, g_depthBiasFromGUI);
+    {
+        g_d3d_user_define_annotation->BeginEvent(L"Shadow Pass");
+
+        if (g_renderMesh)
+        {
+            meshes[0] = g_MainMesh;
+        }
+
+        renderShadowMap(pd3dContext, g_pSceneShadowMap, &g_pSceneShadowMapProj, &mShadowMatrix, numMeshes, meshes, g_shadowViewportScene, lightPos, g_lightRadius, g_depthBiasFromGUI);
+
+        g_d3d_user_define_annotation->EndEvent();
+    }
 
     if (g_useDiffuseInterreflection)
     {
-        // clear the Geometry Volumes
-        float ClearColorGV[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-        pd3dContext->ClearRenderTargetView(GV0->getRenderTargetView(g_LPVLevelToInitialize), ClearColorGV);
-        pd3dContext->ClearRenderTargetView(GV0Color->getRenderTargetView(g_LPVLevelToInitialize), ClearColorGV);
-
         // initialize the LPV and GV with the RSM data:
-        if (g_useRSMForLight)
         {
-            if (g_propType == CASCADE && g_useRSMCascade && !g_bUseSingleLPV)
-            {
-                // render a separate RSM for each level
-                for (int i = 0; i < LPV0Accumulate->getNumLevels(); i++)
-                {
-                    DirectX::XMFLOAT4X4 *lightViewMatrix = &mShadowMatrix;
-                    DirectX::XMFLOAT4X4 *lightProjMatrix = &g_pRSMProjMatrices[std::min(i, SM_PROJ_MATS_SIZE - 1)];
+            g_d3d_user_define_annotation->BeginEvent(L"Fill LPVs");
 
-                    // render the main RSM
-                    renderRSM(pd3dContext, false, g_pRSMColorRT, g_pRSMAlbedoRT, g_pRSMNormalRT, g_pShadowMapDS, g_pShadowMapDS, lightProjMatrix, lightViewMatrix, numMeshes, meshes, g_shadowViewport, lightPos, g_lightRadius, g_depthBiasFromGUI, g_bUseSM);
-                    // initialize the LPV
-                    initializeLPV(pd3dContext, LPV0Accumulate->m_collection[i], LPV0Propagate->m_collection[i], mShadowMatrix, *lightProjMatrix, g_pRSMColorRT, g_pRSMNormalRT, g_pShadowMapDS, g_fLightFov, 1, g_lightNear, g_lightFar, g_useDirectionalLight);
-                    // initialize the GV ( geometry volume) with the RSM data
-                    initializeGV(pd3dContext, GV0->m_collection[i], GV0Color->m_collection[i], g_pRSMAlbedoRT, g_pRSMNormalRT, g_pShadowMapDS, g_fLightFov, 1, g_lightNear, g_lightFar, g_useDirectionalLight, lightProjMatrix, *lightViewMatrix);
-                }
-            }
-            else if (g_propType == CASCADE && !g_bUseSingleLPV)
+            if (g_renderMesh)
             {
-                DirectX::XMFLOAT4X4 *lightProjMatrix = &g_pRSMProjMatrices[0];
-                DirectX::XMFLOAT4X4 *lightViewMatrix = &mShadowMatrix;
+                meshes[0] = g_MainMesh;
+            }
+
+            if (g_propType == CASCADE && !g_bUseSingleLPV)
+            {
+                assert(LPV0Propagate->getNumLevels() == LPV0Accumulate->getNumLevels());
 
                 // render the main RSM
-                renderRSM(pd3dContext, false, g_pRSMColorRT, g_pRSMAlbedoRT, g_pRSMNormalRT, g_pShadowMapDS, g_pShadowMapDS, lightProjMatrix, lightViewMatrix, numMeshes, meshes, g_shadowViewport, lightPos, g_lightRadius, g_depthBiasFromGUI, g_bUseSM);
-
-                for (int i = 0; i < LPV0Accumulate->getNumLevels(); i++)
+                if (g_useRSMCascade)
                 {
-                    // initialize the LPV
-                    initializeLPV(pd3dContext, LPV0Accumulate->m_collection[i], LPV0Propagate->m_collection[i], *lightViewMatrix, *lightProjMatrix, g_pRSMColorRT, g_pRSMNormalRT, g_pShadowMapDS, g_fLightFov, 1, g_lightNear, g_lightFar, g_useDirectionalLight);
-                    // initialize the GV ( geometry volume) with the RSM data
-                    initializeGV(pd3dContext, GV0->m_collection[i], GV0Color->m_collection[i], g_pRSMAlbedoRT, g_pRSMNormalRT, g_pShadowMapDS, g_fLightFov, 1, g_lightNear, g_lightFar, g_useDirectionalLight, lightProjMatrix, *lightViewMatrix);
+                    // render a separate RSM for each level
+                    for (int rsm_index = 0; rsm_index < SM_PROJ_MATS_SIZE; ++rsm_index)
+                    {
+                        DirectX::XMFLOAT4X4 *const lightProjMatrix = &g_pRSMProjMatrices[rsm_index];
+                        DirectX::XMFLOAT4X4 *const lightViewMatrix = &mShadowMatrix;
+
+                        WCHAR name[256];
+                        wsprintfW(name, L"Fill RSM) Cascade #%u", rsm_index);
+
+                        g_d3d_user_define_annotation->BeginEvent(name);
+
+                        renderRSM(pd3dContext, false, g_pRSMColorRT[rsm_index], g_pRSMAlbedoRT[rsm_index], g_pRSMNormalRT[rsm_index], g_pShadowMapDS[rsm_index], g_pShadowMapDS[rsm_index], lightProjMatrix, lightViewMatrix, numMeshes, meshes, g_shadowViewport, lightPos, g_lightRadius, g_depthBiasFromGUI, g_bUseSM);
+
+                        g_d3d_user_define_annotation->EndEvent();
+                    }
+                }
+                else
+                {
+                    DirectX::XMFLOAT4X4 *const lightProjMatrix = &g_pRSMProjMatrices[0];
+                    DirectX::XMFLOAT4X4 *const lightViewMatrix = &mShadowMatrix;
+
+                    g_d3d_user_define_annotation->BeginEvent(L"Fill RSM)");
+
+                    renderRSM(pd3dContext, false, g_pRSMColorRT[0], g_pRSMAlbedoRT[0], g_pRSMNormalRT[0], g_pShadowMapDS[0], g_pShadowMapDS[0], lightProjMatrix, lightViewMatrix, numMeshes, meshes, g_shadowViewport, lightPos, g_lightRadius, g_depthBiasFromGUI, g_bUseSM);
+
+                    g_d3d_user_define_annotation->EndEvent();
+                }
+
+                for (int i = 0; i < LPV0Accumulate->getNumLevels(); ++i)
+                {
+                    int const rsm_index = g_useRSMCascade ? std::min(i, SM_PROJ_MATS_SIZE - 1) : 0;
+
+                    DirectX::XMFLOAT4X4 *const lightProjMatrix = &g_pRSMProjMatrices[rsm_index];
+                    DirectX::XMFLOAT4X4 *const lightViewMatrix = &mShadowMatrix;
+
+                    {
+                        WCHAR name[256];
+                        wsprintfW(name, L"Inject RSM) Cascade #%u LPV", i);
+
+                        g_d3d_user_define_annotation->BeginEvent(name);
+
+                        // clear the LPVs
+                        float ClearColorLPV[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+                        LPV0Propagate->clearRenderTargetView(pd3dContext, ClearColorLPV, true, i);
+                        LPV0Propagate->clearRenderTargetView(pd3dContext, ClearColorLPV, false, i);
+                        LPV0Accumulate->clearRenderTargetView(pd3dContext, ClearColorLPV, true, i);
+                        LPV0Accumulate->clearRenderTargetView(pd3dContext, ClearColorLPV, false, i);
+
+                        // initialize the LPV
+                        initializeLPV(pd3dContext, LPV0Accumulate->m_collection[i], LPV0Propagate->m_collection[i], *lightViewMatrix, *lightProjMatrix, g_pRSMColorRT[rsm_index], g_pRSMNormalRT[rsm_index], g_pShadowMapDS[rsm_index], g_fLightFov, 1, g_lightNear, g_lightFar, g_useDirectionalLight);
+
+                        g_d3d_user_define_annotation->EndEvent();
+                    }
+
+                    {
+                        WCHAR name[256];
+                        wsprintfW(name, L"Inject RSM) Cascade #%u GV", i);
+
+                        g_d3d_user_define_annotation->BeginEvent(name);
+
+                        // clear the Geometry Volumes
+                        float ClearColorGV[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+                        pd3dContext->ClearRenderTargetView(GV0->getRenderTargetView(i), ClearColorGV);
+                        pd3dContext->ClearRenderTargetView(GV0Color->getRenderTargetView(i), ClearColorGV);
+
+                        // initialize the GV ( geometry volume) with the RSM data
+                        initializeGV(pd3dContext, GV0->m_collection[i], GV0Color->m_collection[i], g_pRSMAlbedoRT[rsm_index], g_pRSMNormalRT[rsm_index], g_pShadowMapDS[rsm_index], g_fLightFov, 1, g_lightNear, g_lightFar, g_useDirectionalLight, lightProjMatrix, *lightViewMatrix);
+
+                        g_d3d_user_define_annotation->EndEvent();
+                    }
                 }
             }
             else
             {
-                DirectX::XMFLOAT4X4 *lightViewMatrix = &mShadowMatrix;
-                DirectX::XMFLOAT4X4 *lightProjMatrix;
-                if (g_propType == HIERARCHY)
-                    lightProjMatrix = &g_pShadowMapProjMatrixSingle;
-                else
-                    lightProjMatrix = &g_pRSMProjMatrices[std::min(g_LPVLevelToInitialize, SM_PROJ_MATS_SIZE - 1)];
+                int const rsm_index = (CASCADE == g_propType) ? std::min(g_LPVLevelToInitialize, SM_PROJ_MATS_SIZE - 1) : 0;
+
+                DirectX::XMFLOAT4X4 *const lightProjMatrix = (CASCADE == g_propType) ? &g_pRSMProjMatrices[rsm_index] : &g_pShadowMapProjMatrixSingle;
+                DirectX::XMFLOAT4X4 *const lightViewMatrix = &mShadowMatrix;
 
                 // render the main RSM
-                renderRSM(pd3dContext, false, g_pRSMColorRT, g_pRSMAlbedoRT, g_pRSMNormalRT, g_pShadowMapDS, g_pShadowMapDS, lightProjMatrix, lightViewMatrix, numMeshes, meshes, g_shadowViewport, lightPos, g_lightRadius, g_depthBiasFromGUI, g_bUseSM);
-                // initialize the LPV
-                initializeLPV(pd3dContext, LPV0Accumulate->m_collection[g_LPVLevelToInitialize], LPV0Propagate->m_collection[g_LPVLevelToInitialize], *lightViewMatrix, *lightProjMatrix, g_pRSMColorRT, g_pRSMNormalRT, g_pShadowMapDS, g_fLightFov, 1, g_lightNear, g_lightFar, g_useDirectionalLight);
-                // initialize the GV ( geometry volume) with the RSM data
-                initializeGV(pd3dContext, GV0->m_collection[g_LPVLevelToInitialize], GV0Color->m_collection[g_LPVLevelToInitialize], g_pRSMAlbedoRT, g_pRSMNormalRT, g_pShadowMapDS, g_fLightFov, 1, g_lightNear, g_lightFar, g_useDirectionalLight, lightProjMatrix, *lightViewMatrix);
+                {
+                    g_d3d_user_define_annotation->BeginEvent(L"Fill RSM)");
+
+                    renderRSM(pd3dContext, false, g_pRSMColorRT[rsm_index], g_pRSMAlbedoRT[rsm_index], g_pRSMNormalRT[rsm_index], g_pShadowMapDS[rsm_index], g_pShadowMapDS[rsm_index], lightProjMatrix, lightViewMatrix, numMeshes, meshes, g_shadowViewport, lightPos, g_lightRadius, g_depthBiasFromGUI, g_bUseSM);
+                    g_d3d_user_define_annotation->EndEvent();
+                }
+
+                {
+                    g_d3d_user_define_annotation->BeginEvent(L"Inject RSM) LPV");
+
+                    // clear the LPVs
+                    float ClearColorLPV[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+                    LPV0Propagate->clearRenderTargetView(pd3dContext, ClearColorLPV, true, g_LPVLevelToInitialize);
+                    LPV0Propagate->clearRenderTargetView(pd3dContext, ClearColorLPV, false, g_LPVLevelToInitialize);
+                    LPV0Accumulate->clearRenderTargetView(pd3dContext, ClearColorLPV, true, g_LPVLevelToInitialize);
+                    LPV0Accumulate->clearRenderTargetView(pd3dContext, ClearColorLPV, false, g_LPVLevelToInitialize);
+
+                    // initialize the LPV
+                    initializeLPV(pd3dContext, LPV0Accumulate->m_collection[g_LPVLevelToInitialize], LPV0Propagate->m_collection[g_LPVLevelToInitialize], *lightViewMatrix, *lightProjMatrix, g_pRSMColorRT[rsm_index], g_pRSMNormalRT[rsm_index], g_pShadowMapDS[rsm_index], g_fLightFov, 1, g_lightNear, g_lightFar, g_useDirectionalLight);
+
+                    g_d3d_user_define_annotation->EndEvent();
+                }
+
+                {
+                    g_d3d_user_define_annotation->BeginEvent(L"Inject RSM) GV");
+
+                    // clear the Geometry Volumes
+                    float ClearColorGV[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+                    pd3dContext->ClearRenderTargetView(GV0->getRenderTargetView(g_LPVLevelToInitialize), ClearColorGV);
+                    pd3dContext->ClearRenderTargetView(GV0Color->getRenderTargetView(g_LPVLevelToInitialize), ClearColorGV);
+
+                    // initialize the GV ( geometry volume) with the RSM data
+                    initializeGV(pd3dContext, GV0->m_collection[g_LPVLevelToInitialize], GV0Color->m_collection[g_LPVLevelToInitialize], g_pRSMAlbedoRT[rsm_index], g_pRSMNormalRT[rsm_index], g_pShadowMapDS[rsm_index], g_fLightFov, 1, g_lightNear, g_lightFar, g_useDirectionalLight, lightProjMatrix, *lightViewMatrix);
+
+                    g_d3d_user_define_annotation->EndEvent();
+                }
             }
+
+            g_d3d_user_define_annotation->EndEvent();
         }
 
-        if (g_renderMesh)
-            meshes[0] = g_MainMeshSimplified;
-
+#if 1
         // note: the depth peeling code is currently only rendering a single RSM, vs a cascade of them.
         // it is also initializing only one level of the LPV.
         // it would be better (but slower) to call initializeGV at all levels if we are using a CASCADE
-
-        // depth peeling from the POV of the light
-        if (g_depthPeelFromLight && (g_useOcclusion || g_useMultipleBounces))
+        if ((g_depthPeelFromLight || g_depthPeelFromCamera) && (g_useOcclusion || g_useMultipleBounces))
         {
+            g_d3d_user_define_annotation->BeginEvent(L"Depth Peeling");
 
-            for (int depthPeelingPass = 0; depthPeelingPass < g_numDepthPeelingPasses; depthPeelingPass++)
+            if (g_renderMesh)
             {
-                DirectX::XMFLOAT4X4 *lightViewMatrix = &mShadowMatrix;
-
-                DirectX::XMFLOAT4X4 *lightProjMatrix = &g_pShadowMapProjMatrixSingle;
-                pd3dContext->ClearDepthStencilView(*g_pDepthPeelingDS[depthPeelingPass % 2], D3D11_CLEAR_DEPTH, 1.0, 0);
-                // render the RSMs
-                renderRSM(pd3dContext, depthPeelingPass > 0, g_pRSMColorRT, g_pRSMAlbedoRT, g_pRSMNormalRT, g_pDepthPeelingDS[depthPeelingPass % 2], g_pDepthPeelingDS[(depthPeelingPass + 1) % 2], lightProjMatrix, lightViewMatrix, numMeshes, meshes, g_shadowViewport, lightPos, g_lightRadius, g_depthBiasFromGUI, g_bUseSM);
-                // use RSMs to initialize GV
-                initializeGV(pd3dContext, GV0->m_collection[g_LPVLevelToInitialize], GV0Color->m_collection[g_LPVLevelToInitialize], g_pRSMAlbedoRT, g_pRSMNormalRT, g_pDepthPeelingDS[depthPeelingPass % 2], g_fLightFov, 1, g_lightNear, g_lightFar, g_useDirectionalLight, lightProjMatrix, *lightViewMatrix);
+                meshes[0] = g_MainMeshSimplified;
             }
-        }
 
-        // depth peeling from the POV of the camera
-        if (g_depthPeelFromCamera && (g_useOcclusion || g_useMultipleBounces))
-        {
-            for (int depthPeelingPass = 0; depthPeelingPass < g_numDepthPeelingPasses; depthPeelingPass++)
+            // depth peeling from the POV of the light
+            if (g_depthPeelFromLight && (g_useOcclusion || g_useMultipleBounces))
             {
-                pd3dContext->ClearDepthStencilView(*g_pDepthPeelingDS[depthPeelingPass % 2], D3D11_CLEAR_DEPTH, 1.0, 0);
-                // render the RSMs
-                renderRSM(pd3dContext, depthPeelingPass > 0, g_pRSMColorRT, g_pRSMAlbedoRT, g_pRSMNormalRT, g_pDepthPeelingDS[depthPeelingPass % 2], g_pDepthPeelingDS[(depthPeelingPass + 1) % 2], &cameraProjectionMatrix, &cameraViewMatrix, numMeshes, meshes, g_shadowViewport, lightPos, g_lightRadius, g_depthBiasFromGUI, g_bUseSM);
-                // use RSMs to initialize GV
-                initializeGV(pd3dContext, GV0->m_collection[g_LPVLevelToInitialize], GV0Color->m_collection[g_LPVLevelToInitialize], g_pRSMAlbedoRT, g_pRSMNormalRT, g_pDepthPeelingDS[depthPeelingPass % 2], g_fCameraFovy, g_WindowWidth / (float)g_WindowHeight, g_cameraNear, g_cameraFar, false, &cameraProjectionMatrix, cameraViewMatrix);
+                g_d3d_user_define_annotation->BeginEvent(L"Depth Peeling from Light");
+
+                for (int depthPeelingPass = 0; depthPeelingPass < g_numDepthPeelingPasses; ++depthPeelingPass)
+                {
+                    DirectX::XMFLOAT4X4 *lightViewMatrix = &mShadowMatrix;
+                    DirectX::XMFLOAT4X4 *lightProjMatrix = &g_pShadowMapProjMatrixSingle;
+
+                    pd3dContext->ClearDepthStencilView(*g_pDepthPeelingDS[depthPeelingPass % 2], D3D11_CLEAR_DEPTH, 1.0, 0);
+
+                    // render the RSMs
+                    renderRSM(pd3dContext, depthPeelingPass > 0, g_pRSMColorRT[0], g_pRSMAlbedoRT[0], g_pRSMNormalRT[0], g_pDepthPeelingDS[depthPeelingPass % 2], g_pDepthPeelingDS[(depthPeelingPass + 1) % 2], lightProjMatrix, lightViewMatrix, numMeshes, meshes, g_shadowViewport, lightPos, g_lightRadius, g_depthBiasFromGUI, g_bUseSM);
+
+                    // use RSMs to initialize GV
+                    initializeGV(pd3dContext, GV0->m_collection[g_LPVLevelToInitialize], GV0Color->m_collection[g_LPVLevelToInitialize], g_pRSMAlbedoRT[0], g_pRSMNormalRT[0], g_pDepthPeelingDS[depthPeelingPass % 2], g_fLightFov, 1, g_lightNear, g_lightFar, g_useDirectionalLight, lightProjMatrix, *lightViewMatrix);
+                }
+
+                g_d3d_user_define_annotation->EndEvent();
             }
+
+            // depth peeling from the POV of the camera
+            if (g_depthPeelFromCamera && (g_useOcclusion || g_useMultipleBounces))
+            {
+                g_d3d_user_define_annotation->BeginEvent(L"Depth Peeling from Camera");
+
+                for (int depthPeelingPass = 0; depthPeelingPass < g_numDepthPeelingPasses; ++depthPeelingPass)
+                {
+                    pd3dContext->ClearDepthStencilView(*g_pDepthPeelingDS[depthPeelingPass % 2], D3D11_CLEAR_DEPTH, 1.0, 0);
+
+                    // render the RSMs
+                    renderRSM(pd3dContext, depthPeelingPass > 0, g_pRSMColorRT[0], g_pRSMAlbedoRT[0], g_pRSMNormalRT[0], g_pDepthPeelingDS[depthPeelingPass % 2], g_pDepthPeelingDS[(depthPeelingPass + 1) % 2], &cameraProjectionMatrix, &cameraViewMatrix, numMeshes, meshes, g_shadowViewport, lightPos, g_lightRadius, g_depthBiasFromGUI, g_bUseSM);
+
+                    // use RSMs to initialize GV
+                    initializeGV(pd3dContext, GV0->m_collection[g_LPVLevelToInitialize], GV0Color->m_collection[g_LPVLevelToInitialize], g_pRSMAlbedoRT[0], g_pRSMNormalRT[0], g_pDepthPeelingDS[depthPeelingPass % 2], g_fCameraFovy, g_WindowWidth / (float)g_WindowHeight, g_cameraNear, g_cameraFar, false, &cameraProjectionMatrix, cameraViewMatrix);
+                }
+
+                g_d3d_user_define_annotation->EndEvent();
+            }
+
+            g_d3d_user_define_annotation->EndEvent();
         }
+#endif
     }
 
     // restore rasterizer, depth and blend states
@@ -884,191 +964,241 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
     // propagate the light --------------------------------------------------------------------
     if (g_useDiffuseInterreflection) // only propagate light if we are actually using diffuse interreflections
     {
-        if (g_propType == HIERARCHY)
-            invokeHierarchyBasedPropagation(pd3dContext, g_bUseSingleLPV, g_numHierarchyLevels, g_numPropagationStepsLPV, g_PropLevel,
-                                            dynamic_cast<LPV_Hierarchy *>(GV0), dynamic_cast<LPV_Hierarchy *>(GV0Color), dynamic_cast<LPV_RGB_Hierarchy *>(LPV0Accumulate),
-                                            dynamic_cast<LPV_RGB_Hierarchy *>(LPV0Propagate));
+        g_d3d_user_define_annotation->BeginEvent(L"Propagate Light");
+
+        if (CASCADE == g_propType)
+        {
+            if (!g_bUseSingleLPV)
+            {
+                for (int level = 0; level < LPV0Propagate->getNumLevels(); ++level)
+                {
+                    WCHAR name[256];
+                    wsprintfW(name, L"Cascade #%u", level);
+
+                    g_d3d_user_define_annotation->BeginEvent(name);
+
+                    for (int iteration = 0; iteration < g_numPropagationStepsLPV; ++iteration)
+                    {
+                        propagateLPV(pd3dContext, iteration, LPV0Propagate->m_collection[level], LPV0Accumulate->m_collection[level], GV0->m_collection[level], GV0Color->m_collection[level]);
+                    }
+
+                    g_d3d_user_define_annotation->EndEvent();
+                }
+            }
+            else
+            {
+                for (int iteration = 0; iteration < g_numPropagationStepsLPV; ++iteration)
+                {
+                    propagateLPV(pd3dContext, iteration, LPV0Propagate->m_collection[g_PropLevel], LPV0Accumulate->m_collection[g_PropLevel], GV0->m_collection[g_PropLevel], GV0Color->m_collection[g_PropLevel]);
+                }
+            }
+        }
         else
-            invokeCascadeBasedPropagation(pd3dContext, g_bUseSingleLPV, g_PropLevel, dynamic_cast<LPV_RGB_Cascade *>(LPV0Accumulate), dynamic_cast<LPV_RGB_Cascade *>(LPV0Propagate),
-                                          dynamic_cast<LPV_Cascade *>(GV0), dynamic_cast<LPV_Cascade *>(GV0Color), g_numPropagationStepsLPV);
+        {
+            invokeHierarchyBasedPropagation(pd3dContext, g_bUseSingleLPV, g_numHierarchyLevels, g_numPropagationStepsLPV, g_PropLevel, static_cast<LPV_Hierarchy *>(GV0), static_cast<LPV_Hierarchy *>(GV0Color), static_cast<LPV_RGB_Hierarchy *>(LPV0Accumulate), static_cast<LPV_RGB_Hierarchy *>(LPV0Propagate));
+        }
+
+        g_d3d_user_define_annotation->EndEvent();
     }
 
     // render the scene to the camera---------------------------------------------------
-
-    if (g_renderMesh)
-        meshes[0] = g_MainMesh;
-
-    // update the constant buffer for rendering
-    if (g_propType == HIERARCHY || g_bUseSingleLPV)
     {
-        pd3dContext->Map(g_pcbRenderLPV, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
-        CB_RENDER_LPV *pcbRenderLPV = (CB_RENDER_LPV *)MappedResource.pData;
-        pcbRenderLPV->g_numCols = LPV0Accumulate->getNumCols(g_PropLevel);    // the number of columns in the flattened 2D LPV
-        pcbRenderLPV->g_numRows = LPV0Accumulate->getNumRows(g_PropLevel);    // the number of columns in the flattened 2D LPV
-        pcbRenderLPV->LPV2DWidth = LPV0Accumulate->getWidth2D(g_PropLevel);   // the total width of the flattened 2D LPV
-        pcbRenderLPV->LPV2DHeight = LPV0Accumulate->getHeight2D(g_PropLevel); // the total height of the flattened 2D LPV
-        pcbRenderLPV->LPV3DWidth = LPV0Accumulate->getWidth3D(g_PropLevel);   // the width of the LPV in 3D
-        pcbRenderLPV->LPV3DHeight = LPV0Accumulate->getHeight3D(g_PropLevel); // the height of the LPV in 3D
-        pcbRenderLPV->LPV3DDepth = LPV0Accumulate->getDepth3D(g_PropLevel);   // the depth of the LPV in 3D
-        pd3dContext->Unmap(g_pcbRenderLPV, 0);
-    }
-    else
-    {
-        pd3dContext->Map(g_pcbRenderLPV, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
-        CB_RENDER_LPV *pcbRenderLPV = (CB_RENDER_LPV *)MappedResource.pData;
-        pcbRenderLPV->g_numCols = LPV0Accumulate->getNumCols(0);    // the number of columns in the flattened 2D LPV
-        pcbRenderLPV->g_numRows = LPV0Accumulate->getNumRows(0);    // the number of columns in the flattened 2D LPV
-        pcbRenderLPV->LPV2DWidth = LPV0Accumulate->getWidth2D(0);   // the total width of the flattened 2D LPV
-        pcbRenderLPV->LPV2DHeight = LPV0Accumulate->getHeight2D(0); // the total height of the flattened 2D LPV
-        pcbRenderLPV->LPV3DWidth = LPV0Accumulate->getWidth3D(0);   // the width of the LPV in 3D
-        pcbRenderLPV->LPV3DHeight = LPV0Accumulate->getHeight3D(0); // the height of the LPV in 3D
-        pcbRenderLPV->LPV3DDepth = LPV0Accumulate->getDepth3D(0);   // the depth of the LPV in 3D
-        pd3dContext->Unmap(g_pcbRenderLPV, 0);
+        g_d3d_user_define_annotation->BeginEvent(L"Forward Shading Pass");
 
-        pd3dContext->Map(g_pcbRenderLPV2, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
-        CB_RENDER_LPV *pcbRenderLPV2 = (CB_RENDER_LPV *)MappedResource.pData;
-        pcbRenderLPV2->g_numCols = LPV0Accumulate->getNumCols(1);    // the number of columns in the flattened 2D LPV
-        pcbRenderLPV2->g_numRows = LPV0Accumulate->getNumRows(1);    // the number of columns in the flattened 2D LPV
-        pcbRenderLPV2->LPV2DWidth = LPV0Accumulate->getWidth2D(1);   // the total width of the flattened 2D LPV
-        pcbRenderLPV2->LPV2DHeight = LPV0Accumulate->getHeight2D(1); // the total height of the flattened 2D LPV
-        pcbRenderLPV2->LPV3DWidth = LPV0Accumulate->getWidth3D(1);   // the width of the LPV in 3D
-        pcbRenderLPV2->LPV3DHeight = LPV0Accumulate->getHeight3D(1); // the height of the LPV in 3D
-        pcbRenderLPV2->LPV3DDepth = LPV0Accumulate->getDepth3D(1);   // the depth of the LPV in 3D
-        pd3dContext->Unmap(g_pcbRenderLPV2, 0);
-    }
-
-    pd3dContext->RSSetState(g_pRasterizerStateMainRender);
-
-    pd3dContext->IASetInputLayout(g_pMeshLayout);
-
-    // set shader matrices
-    pd3dContext->VSSetConstantBuffers(5, 1, &g_pcbRender);
-    pd3dContext->PSSetConstantBuffers(5, 1, &g_pcbRender);
-    pd3dContext->PSSetConstantBuffers(7, 1, &g_pcbRenderLPV);
-    pd3dContext->PSSetConstantBuffers(8, 1, &g_pcbRenderLPV2);
-
-    // setup the RT
-    pd3dContext->OMSetRenderTargets(1, &pRTV, pDSV);
-    pd3dContext->RSSetViewports(1, &viewport);
-
-    // clear color and depth
-    float ClearColorScene[4] = {0.3f, 0.3f, 0.3f, 1.0f};
-    pd3dContext->ClearDepthStencilView(pDSV, D3D11_CLEAR_DEPTH, 1.0, 0);
-
-    int srvsUsed = 1;
-
-    // bind the shadow buffer and LPV buffers
-    if (LPV0Accumulate->getRed(0)->getNumChannels() > 1 && LPV0Accumulate->getRed(0)->getNumRTs() == 1)
-    {
-        if (g_bUseSingleLPV || g_propType == HIERARCHY)
+        if (g_renderMesh)
         {
-            int level = 0;
-            if (g_bUseSingleLPV)
-                level = g_PropLevel;
-
-            ID3D11ShaderResourceView *ppSRVs4[4] = {g_pSceneShadowMap->get_pSRV(0), LPV0Accumulate->getRed(level)->get_pSRV(0), LPV0Accumulate->getGreen(level)->get_pSRV(0), LPV0Accumulate->getBlue(level)->get_pSRV(0)};
-            pd3dContext->PSSetShaderResources(1, 4, ppSRVs4);
-            srvsUsed = 4;
+            meshes[0] = g_MainMesh;
         }
-        else if (g_propType == CASCADE)
+
+        // update the constant buffer for rendering
+        if (g_propType == HIERARCHY || g_bUseSingleLPV)
         {
-            ID3D11ShaderResourceView *ppSRVs4[7] = {g_pSceneShadowMap->get_pSRV(0), LPV0Accumulate->getRed(0)->get_pSRV(0), LPV0Accumulate->getGreen(0)->get_pSRV(0), LPV0Accumulate->getBlue(0)->get_pSRV(0),
-                                                    LPV0Accumulate->getRed(1)->get_pSRV(0), LPV0Accumulate->getGreen(1)->get_pSRV(0), LPV0Accumulate->getBlue(1)->get_pSRV(0)};
-            pd3dContext->PSSetShaderResources(1, 7, ppSRVs4);
-            srvsUsed = 7;
+            pd3dContext->Map(g_pcbRenderLPV, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
+            CB_RENDER_LPV *pcbRenderLPV = (CB_RENDER_LPV *)MappedResource.pData;
+            pcbRenderLPV->g_numCols = LPV0Accumulate->getNumCols(g_PropLevel);    // the number of columns in the flattened 2D LPV
+            pcbRenderLPV->g_numRows = LPV0Accumulate->getNumRows(g_PropLevel);    // the number of columns in the flattened 2D LPV
+            pcbRenderLPV->LPV2DWidth = LPV0Accumulate->getWidth2D(g_PropLevel);   // the total width of the flattened 2D LPV
+            pcbRenderLPV->LPV2DHeight = LPV0Accumulate->getHeight2D(g_PropLevel); // the total height of the flattened 2D LPV
+            pcbRenderLPV->LPV3DWidth = LPV0Accumulate->getWidth3D(g_PropLevel);   // the width of the LPV in 3D
+            pcbRenderLPV->LPV3DHeight = LPV0Accumulate->getHeight3D(g_PropLevel); // the height of the LPV in 3D
+            pcbRenderLPV->LPV3DDepth = LPV0Accumulate->getDepth3D(g_PropLevel);   // the depth of the LPV in 3D
+            pd3dContext->Unmap(g_pcbRenderLPV, 0);
         }
-    }
-    else if (LPV0Accumulate->getRed(0)->getNumChannels() == 1 && LPV0Accumulate->getRed(0)->getNumRTs() == 4)
-    {
-        if (g_bUseSingleLPV || g_propType == HIERARCHY)
+        else
         {
-            int level = 0;
-            if (g_bUseSingleLPV)
-                level = g_PropLevel;
-            ID3D11ShaderResourceView *ppSRVs_0[4] = {g_pSceneShadowMap->get_pSRV(0),
-                                                     LPV0Accumulate->getRed(level)->get_pSRV(0), LPV0Accumulate->getGreen(level)->get_pSRV(0), LPV0Accumulate->getBlue(level)->get_pSRV(0)};
-            ID3D11ShaderResourceView *ppSRVs_1[3] = {LPV0Accumulate->getRed(level)->get_pSRV(1), LPV0Accumulate->getGreen(level)->get_pSRV(1), LPV0Accumulate->getBlue(level)->get_pSRV(1)};
-            ID3D11ShaderResourceView *ppSRVs_2[3] = {LPV0Accumulate->getRed(level)->get_pSRV(2), LPV0Accumulate->getGreen(level)->get_pSRV(2), LPV0Accumulate->getBlue(level)->get_pSRV(2)};
-            ID3D11ShaderResourceView *ppSRVs_3[3] = {LPV0Accumulate->getRed(level)->get_pSRV(3), LPV0Accumulate->getGreen(level)->get_pSRV(3), LPV0Accumulate->getBlue(level)->get_pSRV(3)};
-            pd3dContext->PSSetShaderResources(1, 4, ppSRVs_0);
-            pd3dContext->PSSetShaderResources(12, 3, ppSRVs_1);
-            pd3dContext->PSSetShaderResources(21, 3, ppSRVs_2);
-            pd3dContext->PSSetShaderResources(30, 3, ppSRVs_3);
-            srvsUsed = 33;
+            pd3dContext->Map(g_pcbRenderLPV, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
+            CB_RENDER_LPV *pcbRenderLPV = (CB_RENDER_LPV *)MappedResource.pData;
+            pcbRenderLPV->g_numCols = LPV0Accumulate->getNumCols(0);    // the number of columns in the flattened 2D LPV
+            pcbRenderLPV->g_numRows = LPV0Accumulate->getNumRows(0);    // the number of columns in the flattened 2D LPV
+            pcbRenderLPV->LPV2DWidth = LPV0Accumulate->getWidth2D(0);   // the total width of the flattened 2D LPV
+            pcbRenderLPV->LPV2DHeight = LPV0Accumulate->getHeight2D(0); // the total height of the flattened 2D LPV
+            pcbRenderLPV->LPV3DWidth = LPV0Accumulate->getWidth3D(0);   // the width of the LPV in 3D
+            pcbRenderLPV->LPV3DHeight = LPV0Accumulate->getHeight3D(0); // the height of the LPV in 3D
+            pcbRenderLPV->LPV3DDepth = LPV0Accumulate->getDepth3D(0);   // the depth of the LPV in 3D
+            pd3dContext->Unmap(g_pcbRenderLPV, 0);
+
+            pd3dContext->Map(g_pcbRenderLPV2, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
+            CB_RENDER_LPV *pcbRenderLPV2 = (CB_RENDER_LPV *)MappedResource.pData;
+            pcbRenderLPV2->g_numCols = LPV0Accumulate->getNumCols(1);    // the number of columns in the flattened 2D LPV
+            pcbRenderLPV2->g_numRows = LPV0Accumulate->getNumRows(1);    // the number of columns in the flattened 2D LPV
+            pcbRenderLPV2->LPV2DWidth = LPV0Accumulate->getWidth2D(1);   // the total width of the flattened 2D LPV
+            pcbRenderLPV2->LPV2DHeight = LPV0Accumulate->getHeight2D(1); // the total height of the flattened 2D LPV
+            pcbRenderLPV2->LPV3DWidth = LPV0Accumulate->getWidth3D(1);   // the width of the LPV in 3D
+            pcbRenderLPV2->LPV3DHeight = LPV0Accumulate->getHeight3D(1); // the height of the LPV in 3D
+            pcbRenderLPV2->LPV3DDepth = LPV0Accumulate->getDepth3D(1);   // the depth of the LPV in 3D
+            pd3dContext->Unmap(g_pcbRenderLPV2, 0);
         }
-        else if (g_propType == CASCADE)
+
+        pd3dContext->RSSetState(g_pRasterizerStateMainRender);
+
+        pd3dContext->IASetInputLayout(g_pMeshLayout);
+
+        // set shader matrices
+        pd3dContext->VSSetConstantBuffers(5, 1, &g_pcbRender);
+        pd3dContext->PSSetConstantBuffers(5, 1, &g_pcbRender);
+        pd3dContext->PSSetConstantBuffers(7, 1, &g_pcbRenderLPV);
+        pd3dContext->PSSetConstantBuffers(8, 1, &g_pcbRenderLPV2);
+
+        // setup the RT
+        ID3D11RenderTargetView *pRTV = DXUTGetD3D11RenderTargetView();
+        ID3D11DepthStencilView *pDSV = DXUTGetD3D11DepthStencilView();
+        pd3dContext->OMSetRenderTargets(1, &pRTV, pDSV);
+        pd3dContext->RSSetViewports(1, &viewport);
+
+        // clear color and depth
+        float ClearColorRTV[4] = {0.3f, 0.3f, 0.3f, 1.0f};
+        pd3dContext->ClearRenderTargetView(pRTV, ClearColorRTV);
+        float ClearColorScene[4] = {0.3f, 0.3f, 0.3f, 1.0f};
+        pd3dContext->ClearDepthStencilView(pDSV, D3D11_CLEAR_DEPTH, 1.0, 0);
+
+        int srvsUsed = 1;
+
+        // bind the shadow buffer and LPV buffers
+        if (LPV0Accumulate->getRed(0)->getNumChannels() > 1 && LPV0Accumulate->getRed(0)->getNumRTs() == 1)
         {
-            assert(0); // this path is not implemented yet, but needs to be implemented
+            if (g_bUseSingleLPV || g_propType == HIERARCHY)
+            {
+                int level = 0;
+                if (g_bUseSingleLPV)
+                {
+                    level = g_PropLevel;
+                }
+
+                ID3D11ShaderResourceView *ppSRVs4[4] = {g_pSceneShadowMap->get_pSRV(0), LPV0Accumulate->getRed(level)->get_pSRV(0), LPV0Accumulate->getGreen(level)->get_pSRV(0), LPV0Accumulate->getBlue(level)->get_pSRV(0)};
+                pd3dContext->PSSetShaderResources(1, 4, ppSRVs4);
+                srvsUsed = 4;
+            }
+            else if (g_propType == CASCADE)
+            {
+                ID3D11ShaderResourceView *ppSRVs4[7] = {g_pSceneShadowMap->get_pSRV(0), LPV0Accumulate->getRed(0)->get_pSRV(0), LPV0Accumulate->getGreen(0)->get_pSRV(0), LPV0Accumulate->getBlue(0)->get_pSRV(0), LPV0Accumulate->getRed(1)->get_pSRV(0), LPV0Accumulate->getGreen(1)->get_pSRV(0), LPV0Accumulate->getBlue(1)->get_pSRV(0)};
+                pd3dContext->PSSetShaderResources(1, 7, ppSRVs4);
+                srvsUsed = 7;
+            }
         }
+        else if (LPV0Accumulate->getRed(0)->getNumChannels() == 1 && LPV0Accumulate->getRed(0)->getNumRTs() == 4)
+        {
+            if (g_bUseSingleLPV || g_propType == HIERARCHY)
+            {
+                int level = 0;
+                if (g_bUseSingleLPV)
+                {
+                    level = g_PropLevel;
+                }
+
+                ID3D11ShaderResourceView *ppSRVs_0[4] = {g_pSceneShadowMap->get_pSRV(0), LPV0Accumulate->getRed(level)->get_pSRV(0), LPV0Accumulate->getGreen(level)->get_pSRV(0), LPV0Accumulate->getBlue(level)->get_pSRV(0)};
+                ID3D11ShaderResourceView *ppSRVs_1[3] = {LPV0Accumulate->getRed(level)->get_pSRV(1), LPV0Accumulate->getGreen(level)->get_pSRV(1), LPV0Accumulate->getBlue(level)->get_pSRV(1)};
+                ID3D11ShaderResourceView *ppSRVs_2[3] = {LPV0Accumulate->getRed(level)->get_pSRV(2), LPV0Accumulate->getGreen(level)->get_pSRV(2), LPV0Accumulate->getBlue(level)->get_pSRV(2)};
+                ID3D11ShaderResourceView *ppSRVs_3[3] = {LPV0Accumulate->getRed(level)->get_pSRV(3), LPV0Accumulate->getGreen(level)->get_pSRV(3), LPV0Accumulate->getBlue(level)->get_pSRV(3)};
+                pd3dContext->PSSetShaderResources(1, 4, ppSRVs_0);
+                pd3dContext->PSSetShaderResources(12, 3, ppSRVs_1);
+                pd3dContext->PSSetShaderResources(21, 3, ppSRVs_2);
+                pd3dContext->PSSetShaderResources(30, 3, ppSRVs_3);
+                srvsUsed = 33;
+            }
+            else if (g_propType == CASCADE)
+            {
+                assert(0); // this path is not implemented yet, but needs to be implemented
+            }
+        }
+        else
+        {
+            assert(0); // this path is not implemented and either we are here by mistake, or we have to implement this path because it is really needed
+        }
+
+        // bind the samplers
+        ID3D11SamplerState *states[2] = {g_pLinearSampler, g_pComparisonSampler};
+        pd3dContext->PSSetSamplers(0, 2, states);
+        ID3D11SamplerState *state[1] = {g_pAnisoSampler};
+        pd3dContext->PSSetSamplers(3, 1, state);
+
+        // set the shaders
+        pd3dContext->VSSetShader(g_pVS, NULL, 0);
+        if (useFloat4s)
+        {
+            pd3dContext->PSSetShader(g_pPS, NULL, 0);
+        }
+        else
+        {
+            pd3dContext->PSSetShader(g_pPS_separateFloatTextures, NULL, 0);
+        }
+
+        for (int i = 0; i < numMeshes; ++i)
+        {
+            RenderMesh *mesh = meshes[i];
+            // set the matrices
+            DirectX::XMFLOAT4X4 ViewProjClip2TexLight, WVPMatrixLight, WVMatrixITLight, WVMatrixLight;
+            mesh->createMatrices(g_pSceneShadowMapProj, mShadowMatrix, &WVMatrixLight, &WVMatrixITLight, &WVPMatrixLight, &ViewProjClip2TexLight);
+            DirectX::XMFLOAT4X4 ViewProjClip2TexCamera, WVPMatrixCamera, WVMatrixITCamera, WVMatrixCamera;
+            mesh->createMatrices(cameraProjectionMatrix, cameraViewMatrix, &WVMatrixCamera, &WVMatrixITCamera, &WVPMatrixCamera, &ViewProjClip2TexCamera);
+
+            DirectX::XMFLOAT3 LightCameraEyePt;
+            DirectX::XMStoreFloat3(&LightCameraEyePt, g_LightCamera.GetEyePt());
+            UpdateSceneCB(pd3dContext, LightCameraEyePt, g_lightRadius, g_depthBiasFromGUI, g_bUseSM, &(WVPMatrixCamera), &(WVMatrixITCamera), &(mesh->m_WMatrix), &(ViewProjClip2TexLight));
+
+            // first render the meshes with no alpha
+            pd3dContext->OMSetBlendState(g_pNoBlendBS, BlendFactor, 0xffffffff);
+            pd3dContext->Map(g_pcbMeshRenderOptions, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
+            CB_MESH_RENDER_OPTIONS *pMeshRenderOptions = (CB_MESH_RENDER_OPTIONS *)MappedResource.pData;
+            if (g_useTextureForFinalRender)
+                pMeshRenderOptions->useTexture = mesh->m_UseTexture;
+            else
+                pMeshRenderOptions->useTexture = false;
+            pMeshRenderOptions->useAlpha = false;
+            pd3dContext->Unmap(g_pcbMeshRenderOptions, 0);
+            pd3dContext->PSSetConstantBuffers(6, 1, &g_pcbMeshRenderOptions);
+            if (g_subsetToRender == -1)
+                mesh->m_Mesh.RenderBounded(pd3dContext, DirectX::XMFLOAT3(0, 0, 0), DirectX::XMFLOAT3(100000, 100000, 100000), 0, 39, -1, 40, Mesh::NO_ALPHA);
+            else
+                mesh->m_Mesh.RenderSubsetBounded(0, g_subsetToRender, pd3dContext, DirectX::XMFLOAT3(0, 0, 0), DirectX::XMFLOAT3(10000, 10000, 10000), false, 0, 39, -1, 40, Mesh::NO_ALPHA);
+
+            // then render the meshes with alpha
+            pd3dContext->OMSetBlendState(g_pAlphaBlendBS, BlendFactor, 0xffffffff);
+            pd3dContext->Map(g_pcbMeshRenderOptions, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
+            pMeshRenderOptions = (CB_MESH_RENDER_OPTIONS *)MappedResource.pData;
+            if (g_useTextureForFinalRender)
+                pMeshRenderOptions->useTexture = mesh->m_UseTexture;
+            else
+                pMeshRenderOptions->useTexture = false;
+            pMeshRenderOptions->useAlpha = true;
+            pd3dContext->Unmap(g_pcbMeshRenderOptions, 0);
+            pd3dContext->PSSetConstantBuffers(6, 1, &g_pcbMeshRenderOptions);
+            if (g_subsetToRender == -1)
+                mesh->m_Mesh.RenderBounded(pd3dContext, DirectX::XMFLOAT3(0, 0, 0), DirectX::XMFLOAT3(100000, 100000, 100000), 0, 39, -1, 40, Mesh::WITH_ALPHA);
+            else
+                mesh->m_Mesh.RenderSubsetBounded(0, g_subsetToRender, pd3dContext, DirectX::XMFLOAT3(0, 0, 0), DirectX::XMFLOAT3(10000, 10000, 10000), false, 0, 39, -1, 40, Mesh::WITH_ALPHA);
+            pd3dContext->OMSetBlendState(g_pNoBlendBS, BlendFactor, 0xffffffff);
+        }
+
+        ID3D11ShaderResourceView *ppSRVsNULL[64];
+        assert(srvsUsed < 64);
+        for (int i = 0; i < srvsUsed; ++i)
+        {
+            ppSRVsNULL[i] = NULL;
+        }
+        pd3dContext->PSSetShaderResources(1, srvsUsed, ppSRVsNULL);
+
+        g_d3d_user_define_annotation->EndEvent();
     }
-    else
-        assert(0); // this path is not implemented and either we are here by mistake, or we have to implement this path because it is really needed
-
-    // bind the samplers
-    ID3D11SamplerState *states[2] = {g_pLinearSampler, g_pComparisonSampler};
-    pd3dContext->PSSetSamplers(0, 2, states);
-    ID3D11SamplerState *state[1] = {g_pAnisoSampler};
-    pd3dContext->PSSetSamplers(3, 1, state);
-
-    // set the shaders
-    pd3dContext->VSSetShader(g_pVS, NULL, 0);
-    if (useFloat4s)
-        pd3dContext->PSSetShader(g_pPS, NULL, 0);
-    else
-        pd3dContext->PSSetShader(g_pPS_separateFloatTextures, NULL, 0);
-
-    for (int i = 0; i < numMeshes; i++)
-    {
-        RenderMesh *mesh = meshes[i];
-        // set the matrices
-        DirectX::XMFLOAT4X4 ViewProjClip2TexLight, WVPMatrixLight, WVMatrixITLight, WVMatrixLight;
-        mesh->createMatrices(g_pSceneShadowMapProj, mShadowMatrix, &WVMatrixLight, &WVMatrixITLight, &WVPMatrixLight, &ViewProjClip2TexLight);
-        DirectX::XMFLOAT4X4 ViewProjClip2TexCamera, WVPMatrixCamera, WVMatrixITCamera, WVMatrixCamera;
-        mesh->createMatrices(cameraProjectionMatrix, cameraViewMatrix, &WVMatrixCamera, &WVMatrixITCamera, &WVPMatrixCamera, &ViewProjClip2TexCamera);
-
-        DirectX::XMFLOAT3 LightCameraEyePt;
-        DirectX::XMStoreFloat3(&LightCameraEyePt, g_LightCamera.GetEyePt());
-        UpdateSceneCB(pd3dContext, LightCameraEyePt, g_lightRadius, g_depthBiasFromGUI, g_bUseSM, &(WVPMatrixCamera), &(WVMatrixITCamera), &(mesh->m_WMatrix), &(ViewProjClip2TexLight));
-
-        // first render the meshes with no alpha
-        pd3dContext->OMSetBlendState(g_pNoBlendBS, BlendFactor, 0xffffffff);
-        pd3dContext->Map(g_pcbMeshRenderOptions, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
-        CB_MESH_RENDER_OPTIONS *pMeshRenderOptions = (CB_MESH_RENDER_OPTIONS *)MappedResource.pData;
-        if (g_useTextureForFinalRender)
-            pMeshRenderOptions->useTexture = mesh->m_UseTexture;
-        else
-            pMeshRenderOptions->useTexture = false;
-        pMeshRenderOptions->useAlpha = false;
-        pd3dContext->Unmap(g_pcbMeshRenderOptions, 0);
-        pd3dContext->PSSetConstantBuffers(6, 1, &g_pcbMeshRenderOptions);
-        if (g_subsetToRender == -1)
-            mesh->m_Mesh.RenderBounded(pd3dContext, DirectX::XMFLOAT3(0, 0, 0), DirectX::XMFLOAT3(100000, 100000, 100000), 0, 39, -1, 40, Mesh::NO_ALPHA);
-        else
-            mesh->m_Mesh.RenderSubsetBounded(0, g_subsetToRender, pd3dContext, DirectX::XMFLOAT3(0, 0, 0), DirectX::XMFLOAT3(10000, 10000, 10000), false, 0, 39, -1, 40, Mesh::NO_ALPHA);
-
-        // then render the meshes with alpha
-        pd3dContext->OMSetBlendState(g_pAlphaBlendBS, BlendFactor, 0xffffffff);
-        pd3dContext->Map(g_pcbMeshRenderOptions, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
-        pMeshRenderOptions = (CB_MESH_RENDER_OPTIONS *)MappedResource.pData;
-        if (g_useTextureForFinalRender)
-            pMeshRenderOptions->useTexture = mesh->m_UseTexture;
-        else
-            pMeshRenderOptions->useTexture = false;
-        pMeshRenderOptions->useAlpha = true;
-        pd3dContext->Unmap(g_pcbMeshRenderOptions, 0);
-        pd3dContext->PSSetConstantBuffers(6, 1, &g_pcbMeshRenderOptions);
-        if (g_subsetToRender == -1)
-            mesh->m_Mesh.RenderBounded(pd3dContext, DirectX::XMFLOAT3(0, 0, 0), DirectX::XMFLOAT3(100000, 100000, 100000), 0, 39, -1, 40, Mesh::WITH_ALPHA);
-        else
-            mesh->m_Mesh.RenderSubsetBounded(0, g_subsetToRender, pd3dContext, DirectX::XMFLOAT3(0, 0, 0), DirectX::XMFLOAT3(10000, 10000, 10000), false, 0, 39, -1, 40, Mesh::WITH_ALPHA);
-        pd3dContext->OMSetBlendState(g_pNoBlendBS, BlendFactor, 0xffffffff);
-    }
-
-    ID3D11ShaderResourceView **ppSRVsNULL = new ID3D11ShaderResourceView *[srvsUsed];
-    for (int i = 0; i < srvsUsed; i++)
-        ppSRVsNULL[i] = NULL;
-    pd3dContext->PSSetShaderResources(1, srvsUsed, ppSRVsNULL);
-    delete[] ppSRVsNULL;
 
     // render the box visualizing the LPV
     if (g_bVizLPVBB)
@@ -1079,33 +1209,45 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
         colors[2] = DirectX::XMFLOAT4(0.0f, 0.0f, 1.0f, 1.0f);
 
         if (g_propType == HIERARCHY)
+        {
             VisualizeBB(pd3dContext, LPV0Propagate->m_collection[0], VPMatrix, colors[0]);
+        }
         else
-            for (int i = 0; i < LPV0Propagate->getNumLevels(); i++)
+        {
+            for (int i = 0; i < LPV0Propagate->getNumLevels(); ++i)
+            {
                 VisualizeBB(pd3dContext, LPV0Propagate->m_collection[i], VPMatrix, colors[std::min(2, i)]);
+            }
+        }
     }
 
     // render the light arrow
-    pd3dContext->Map(g_pcbSimple, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
-    pPSSimple = (CB_SIMPLE_OBJECTS *)MappedResource.pData;
-    // calculate and set the world view projection matrix for transforming the arrow
-    DirectX::XMFLOAT4X4 objScale;
-    DirectX::XMStoreFloat4x4(&objScale, DirectX::XMMatrixScaling(0.06f, 0.06f, 0.06f));
-    DirectX::XMFLOAT4X4 mLookAtInv;
-    DirectX::XMStoreFloat4x4(&mLookAtInv, DirectX::XMMatrixInverse(NULL, DirectX::XMLoadFloat4x4(&mShadowMatrix)));
-    DirectX::XMFLOAT4X4 mWorldS;
-    DirectX::XMStoreFloat4x4(&mWorldS, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&objScale), DirectX::XMLoadFloat4x4(&mLookAtInv)));
-    DirectX::XMFLOAT4X4 objXForm;
-    DirectX::XMStoreFloat4x4(&objXForm, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&mWorldS), DirectX::XMLoadFloat4x4(&VPMatrix)));
-    DirectX::XMStoreFloat4x4(&pPSSimple->m_WorldViewProj, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&objXForm)));
-    pPSSimple->m_color = DirectX::XMFLOAT4(1.0f, 1.0f, 0.0f, 1.0f);
-    pd3dContext->Unmap(g_pcbSimple, 0);
-    pd3dContext->PSSetConstantBuffers(4, 1, &g_pcbSimple);
-    pd3dContext->VSSetConstantBuffers(4, 1, &g_pcbSimple);
-    pd3dContext->RSSetState(g_pRasterizerStateMainRender);
-    pd3dContext->VSSetShader(g_pSimpleVS, NULL, 0);
-    pd3dContext->PSSetShader(g_pSimplePS, NULL, 0);
-    g_MeshArrow.Render(pd3dContext, 0);
+    {
+        g_d3d_user_define_annotation->BeginEvent(L"Light Arrow Pass");
+
+        pd3dContext->Map(g_pcbSimple, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
+        pPSSimple = (CB_SIMPLE_OBJECTS *)MappedResource.pData;
+        // calculate and set the world view projection matrix for transforming the arrow
+        DirectX::XMFLOAT4X4 objScale;
+        DirectX::XMStoreFloat4x4(&objScale, DirectX::XMMatrixScaling(0.06f, 0.06f, 0.06f));
+        DirectX::XMFLOAT4X4 mLookAtInv;
+        DirectX::XMStoreFloat4x4(&mLookAtInv, DirectX::XMMatrixInverse(NULL, DirectX::XMLoadFloat4x4(&mShadowMatrix)));
+        DirectX::XMFLOAT4X4 mWorldS;
+        DirectX::XMStoreFloat4x4(&mWorldS, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&objScale), DirectX::XMLoadFloat4x4(&mLookAtInv)));
+        DirectX::XMFLOAT4X4 objXForm;
+        DirectX::XMStoreFloat4x4(&objXForm, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&mWorldS), DirectX::XMLoadFloat4x4(&VPMatrix)));
+        DirectX::XMStoreFloat4x4(&pPSSimple->m_WorldViewProj, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&objXForm)));
+        pPSSimple->m_color = DirectX::XMFLOAT4(1.0f, 1.0f, 0.0f, 1.0f);
+        pd3dContext->Unmap(g_pcbSimple, 0);
+        pd3dContext->PSSetConstantBuffers(4, 1, &g_pcbSimple);
+        pd3dContext->VSSetConstantBuffers(4, 1, &g_pcbSimple);
+        pd3dContext->RSSetState(g_pRasterizerStateMainRender);
+        pd3dContext->VSSetShader(g_pSimpleVS, NULL, 0);
+        pd3dContext->PSSetShader(g_pSimplePS, NULL, 0);
+        g_MeshArrow.Render(pd3dContext, 0);
+
+        g_d3d_user_define_annotation->EndEvent();
+    }
 
     if (g_bVisualizeLPV3D)
     {
@@ -1127,15 +1269,25 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
         pd3dContext->PSSetConstantBuffers(7, 1, &g_pcbRenderLPV); // note: right now this is not visualizing the right level of the cascade
 
         if (g_currVizChoice == GV_COLOR)
+        {
             pd3dContext->PSSetShaderResources(11, 1, GV0Color->getShaderResourceViewpp(g_PropLevel));
+        }
         else if (g_currVizChoice == GV)
+        {
             pd3dContext->PSSetShaderResources(11, 1, GV0->getShaderResourceViewpp(g_PropLevel));
+        }
         else if (g_currVizChoice == GREEN_ACCUM_LPV)
+        {
             pd3dContext->PSSetShaderResources(11, 1, LPV0Accumulate->getGreen(g_PropLevel)->get_ppSRV(0));
+        }
         else if (g_currVizChoice == BLUE_ACCUM_LPV)
+        {
             pd3dContext->PSSetShaderResources(11, 1, LPV0Accumulate->getBlue(g_PropLevel)->get_ppSRV(0));
+        }
         else
+        {
             pd3dContext->PSSetShaderResources(11, 1, LPV0Propagate->getRed(g_PropLevel)->get_ppSRV(0));
+        }
 
         pd3dContext->RSSetState(g_pRasterizerStateMainRender);
         pd3dContext->VSSetShader(g_pVSVizLPV, NULL, 0);
@@ -1149,7 +1301,9 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
         int zLimit = LPV0Propagate->m_collection[g_PropLevel]->getDepth3D();
 
         for (int x = 0; x < xLimit; x++)
+        {
             for (int y = 0; y < yLimit; y++)
+            {
                 for (int z = 0; z < zLimit; z++)
                 {
 
@@ -1161,6 +1315,8 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
 
                     g_LowResMesh.Render(pd3dContext, 0);
                 }
+            }
+        }
 
         ID3D11ShaderResourceView *ppSRVsNULL1[1] = {NULL};
         pd3dContext->PSSetShaderResources(11, 1, ppSRVsNULL1);
@@ -1169,26 +1325,38 @@ void DrawScene(ID3D11Device *pd3dDevice, ID3D11DeviceContext *pd3dContext)
     if (g_bVisualizeSM)
     {
         if (g_currVizChoice == COLOR_RSM)
-            visualizeMap(g_pRSMColorRT, pd3dContext, g_pRSMColorRT->getNumChannels());
+        {
+            visualizeMap(g_pRSMColorRT[0], pd3dContext, g_pRSMColorRT[0]->getNumChannels());
+        }
         else if (g_currVizChoice == NORMAL_RSM)
-            visualizeMap(g_pRSMNormalRT, pd3dContext, g_pRSMNormalRT->getNumChannels());
+        {
+            visualizeMap(g_pRSMNormalRT[0], pd3dContext, g_pRSMNormalRT[0]->getNumChannels());
+        }
         else if (g_currVizChoice == ALBEDO_RSM)
-            visualizeMap(g_pRSMAlbedoRT, pd3dContext, g_pRSMAlbedoRT->getNumChannels());
-
+        {
+            visualizeMap(g_pRSMAlbedoRT[0], pd3dContext, g_pRSMAlbedoRT[0]->getNumChannels());
+        }
         else if (g_currVizChoice == RED_LPV)
+        {
             visualizeMap(LPV0Propagate->getRed(g_PropLevel), pd3dContext, LPV0Propagate->getRed(g_PropLevel)->getNumChannels());
+        }
         else if (g_currVizChoice == GREEN_ACCUM_LPV)
+        {
             visualizeMap(LPV0Accumulate->getGreen(g_PropLevel), pd3dContext, LPV0Accumulate->getGreen(g_PropLevel)->getNumChannels());
+        }
         else if (g_currVizChoice == BLUE_ACCUM_LPV)
+        {
             visualizeMap(LPV0Accumulate->getBlue(g_PropLevel), pd3dContext, LPV0Accumulate->getBlue(g_PropLevel)->getNumChannels());
-
+        }
         else if (g_currVizChoice == GV)
+        {
             visualizeMap(GV0->getRenderTarget(g_PropLevel), pd3dContext, 1);
+        }
         else if (g_currVizChoice == GV_COLOR)
+        {
             visualizeMap(GV0Color->getRenderTarget(g_PropLevel), pd3dContext, 1);
+        }
     }
-
-    delete[] meshes;
 }
 
 void resetSettingValues()
@@ -1453,10 +1621,12 @@ void CALLBACK OnD3D11FrameRender(ID3D11Device *pd3dDevice, ID3D11DeviceContext *
     // draw UI
     if (g_showUI)
     {
-        DXUT_BeginPerfEvent(DXUT_PERFEVENTCOLOR, L"HUD / Stats");
+        g_d3d_user_define_annotation->BeginEvent(L"UI Pass");
+
         g_HUD.OnRender(fElapsedTime);
         RenderText();
-        DXUT_EndPerfEvent();
+
+        g_d3d_user_define_annotation->EndEvent();
     }
 }
 
@@ -1691,6 +1861,8 @@ HRESULT CALLBACK OnD3D11CreateDevice(ID3D11Device *pd3dDevice, const DXGI_SURFAC
     g_pd3dDevice = pd3dDevice;
 
     ID3D11DeviceContext *pd3dImmediateContext = DXUTGetD3D11DeviceContext();
+    V_RETURN(pd3dImmediateContext->QueryInterface(IID_PPV_ARGS(&g_d3d_user_define_annotation)));
+
     V_RETURN(g_DialogResourceManager.OnD3D11CreateDevice(pd3dDevice, pd3dImmediateContext));
     V_RETURN(g_D3DSettingsDlg.OnD3D11CreateDevice(pd3dDevice));
     g_pTxtHelper = new CDXUTTextHelper(pd3dDevice, pd3dImmediateContext, &g_DialogResourceManager, 15);
@@ -2934,14 +3106,17 @@ void InitApp()
 // initialize all the shadowmap buffers and variables
 void initializeReflectiveShadowMaps(ID3D11Device *pd3dDevice)
 {
-    g_pRSMColorRT = new SimpleRT;
-    g_pRSMColorRT->Create2D(pd3dDevice, RSM_RES, RSM_RES, 1, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM);
+    for (int i = 0; i < SM_PROJ_MATS_SIZE; ++i)
+    {
+        g_pRSMColorRT[i] = new SimpleRT;
+        g_pRSMColorRT[i]->Create2D(pd3dDevice, RSM_RES, RSM_RES, 1, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM);
 
-    g_pRSMAlbedoRT = new SimpleRT;
-    g_pRSMAlbedoRT->Create2D(pd3dDevice, RSM_RES, RSM_RES, 1, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM);
+        g_pRSMAlbedoRT[i] = new SimpleRT;
+        g_pRSMAlbedoRT[i]->Create2D(pd3dDevice, RSM_RES, RSM_RES, 1, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM);
 
-    g_pRSMNormalRT = new SimpleRT;
-    g_pRSMNormalRT->Create2D(pd3dDevice, RSM_RES, RSM_RES, 1, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM);
+        g_pRSMNormalRT[i] = new SimpleRT;
+        g_pRSMNormalRT[i]->Create2D(pd3dDevice, RSM_RES, RSM_RES, 1, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM);
+    }
 
     D3D11_TEXTURE2D_DESC texDesc;
     texDesc.ArraySize = 1;
@@ -2955,7 +3130,10 @@ void initializeReflectiveShadowMaps(ID3D11Device *pd3dDevice)
     texDesc.SampleDesc.Count = 1;
     texDesc.SampleDesc.Quality = 0;
     texDesc.Usage = D3D11_USAGE_DEFAULT;
-    g_pShadowMapDS = new DepthRT(pd3dDevice, &texDesc);
+    for (int i = 0; i < SM_PROJ_MATS_SIZE; ++i)
+    {
+        g_pShadowMapDS[i] = new DepthRT(pd3dDevice, &texDesc);
+    }
     g_pDepthPeelingDS[0] = new DepthRT(pd3dDevice, &texDesc);
     g_pDepthPeelingDS[1] = new DepthRT(pd3dDevice, &texDesc);
 }
@@ -3001,6 +3179,8 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
 //--------------------------------------------------------------------------------------
 void CALLBACK OnD3D11DestroyDevice(void *pUserContext)
 {
+    SAFE_RELEASE(g_d3d_user_define_annotation);
+
     g_DialogResourceManager.OnD3D11DestroyDevice();
     g_D3DSettingsDlg.OnD3D11DestroyDevice();
     DXUTGetGlobalResourceCache().OnDestroyDevice();
@@ -3089,10 +3269,15 @@ void CALLBACK OnD3D11DestroyDevice(void *pUserContext)
     SAFE_DELETE(LPV0Accumulate);
     SAFE_DELETE(GV0);
     SAFE_DELETE(GV0Color);
-    SAFE_DELETE(g_pRSMColorRT);
-    SAFE_DELETE(g_pRSMAlbedoRT);
-    SAFE_DELETE(g_pRSMNormalRT);
-    SAFE_DELETE(g_pShadowMapDS);
+
+    for (int i = 0; i < SM_PROJ_MATS_SIZE; ++i)
+    {
+        SAFE_DELETE(g_pRSMColorRT[i]);
+        SAFE_DELETE(g_pRSMAlbedoRT[i]);
+        SAFE_DELETE(g_pRSMNormalRT[i]);
+        SAFE_DELETE(g_pShadowMapDS[i]);
+    }
+
     SAFE_DELETE(g_pDepthPeelingDS[0]);
     SAFE_DELETE(g_pDepthPeelingDS[1]);
 
